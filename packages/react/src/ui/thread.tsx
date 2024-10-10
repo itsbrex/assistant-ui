@@ -19,16 +19,20 @@ import {
   ThreadConfigProviderProps,
   useThreadConfig,
 } from "./thread-config";
-import { ThreadPrimitive, ThreadPrimitiveRootProps } from "../primitives";
+import { ThreadPrimitive } from "../primitives";
 import { useThread } from "../context";
 
 const Thread: FC<ThreadConfig> = (config) => {
-  const { components: { Composer: ComposerComponent = Composer } = {} } =
-    config;
+  const {
+    components: {
+      Composer: ComposerComponent = Composer,
+      ThreadWelcome: ThreadWelcomeComponent = ThreadWelcome,
+    } = {},
+  } = config;
   return (
     <ThreadRoot config={config}>
       <ThreadViewport>
-        <ThreadWelcome />
+        <ThreadWelcomeComponent />
         <ThreadMessages />
         <ThreadFollowupSuggestions />
         <ThreadViewportFooter>
@@ -40,14 +44,21 @@ const Thread: FC<ThreadConfig> = (config) => {
   );
 };
 
-export type ThreadRootProps = ThreadPrimitiveRootProps &
-  ThreadConfigProviderProps;
+/**
+ * @deprecated Use `Thread.Root.Props` instead. This will be removed in 0.6.
+ */
+export type ThreadRootProps = ThreadRoot.Props;
+
+namespace ThreadRoot {
+  export type Element = HTMLDivElement;
+  export type Props = ThreadPrimitive.Root.Props & ThreadConfigProviderProps;
+}
 
 const ThreadRootStyled = withDefaults(ThreadPrimitive.Root, {
   className: "aui-root aui-thread-root",
 });
 
-const ThreadRoot = forwardRef<HTMLDivElement, ThreadRootProps>(
+const ThreadRoot = forwardRef<ThreadRoot.Element, ThreadRoot.Props>(
   ({ config, ...props }, ref) => {
     return (
       <ThreadConfigProvider config={config}>
@@ -131,9 +142,14 @@ const ThreadScrollToBottomIconButton = withDefaults(TooltipIconButton, {
   className: "aui-thread-scroll-to-bottom",
 });
 
+namespace ThreadScrollToBottom {
+  export type Element = HTMLButtonElement;
+  export type Props = Partial<TooltipIconButtonProps>;
+}
+
 const ThreadScrollToBottom = forwardRef<
-  HTMLButtonElement,
-  Partial<TooltipIconButtonProps>
+  ThreadScrollToBottom.Element,
+  ThreadScrollToBottom.Props
 >((props, ref) => {
   const {
     strings: {

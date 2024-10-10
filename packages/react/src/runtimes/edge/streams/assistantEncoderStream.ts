@@ -27,15 +27,18 @@ export function assistantEncoderStream() {
             controller.enqueue({
               type: AssistantStreamChunkType.ToolCallBegin,
               value: {
-                id: chunk.toolCallId,
-                name: chunk.toolName,
+                toolCallId: chunk.toolCallId,
+                toolName: chunk.toolName,
               },
             });
           }
 
           controller.enqueue({
-            type: AssistantStreamChunkType.ToolCallArgsTextDelta,
-            value: chunk.argsTextDelta,
+            type: AssistantStreamChunkType.ToolCallDelta,
+            value: {
+              toolCallId: chunk.toolCallId,
+              argsTextDelta: chunk.argsTextDelta,
+            },
           });
           break;
         }
@@ -49,9 +52,18 @@ export function assistantEncoderStream() {
           controller.enqueue({
             type: AssistantStreamChunkType.ToolCallResult,
             value: {
-              id: chunk.toolCallId,
+              toolCallId: chunk.toolCallId,
               result: chunk.result,
             },
+          });
+          break;
+        }
+
+        case "step-finish": {
+          const { type, ...rest } = chunk;
+          controller.enqueue({
+            type: AssistantStreamChunkType.StepFinish,
+            value: rest,
           });
           break;
         }
