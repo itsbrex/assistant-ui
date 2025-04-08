@@ -1,5 +1,11 @@
 # assistant-ui
 
+## 0.0.40
+
+### Patch Changes
+
+- d2988ff: fix: init command does not work on empty folders
+
 ## 0.0.39
 
 ### Patch Changes
