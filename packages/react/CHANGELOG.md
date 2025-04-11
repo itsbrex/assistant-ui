@@ -1,5 +1,20 @@
 # @assistant-ui/react
 
+## 0.8.20
+
+### Patch Changes
+
+- Updated dependencies [545a17c]
+  - assistant-stream@0.0.32
+
+## 0.8.19
+
+### Patch Changes
+
+- 93c3eb4: fix: drop ToolResponseBrand
+- Updated dependencies [93c3eb4]
+  - assistant-stream@0.0.31
+
 ## 0.8.18
 
 ### Patch Changes
