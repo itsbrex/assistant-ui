@@ -1,5 +1,13 @@
 # @assistant-ui/react-hook-form
 
+## 0.9.2
+
+### Patch Changes
+
+- b9c731a: chore: update dependencies
+- Updated dependencies [b9c731a]
+  - @assistant-ui/react@0.9.3
+
 ## 0.9.1
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @assistant-ui/react
 
+## 0.9.3
+
+### Patch Changes
+
+- b9c731a: chore: update dependencies
+
 ## 0.9.2
 
 ### Patch Changes
