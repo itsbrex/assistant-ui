@@ -1,5 +1,11 @@
 # @assistant-ui/react
 
+## 0.10.20
+
+### Patch Changes
+
+- 8aa3020: Fix: Export missing adapter primitives
+
 ## 0.10.19
 
 ### Patch Changes
