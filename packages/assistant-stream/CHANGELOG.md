@@ -1,5 +1,17 @@
 # assistant-stream
 
+## 0.2.16
+
+### Patch Changes
+
+- de00319: fix: add assistant-stream/utils subpath import workaround
+
+## 0.2.15
+
+### Patch Changes
+
+- 51b8493: feat: add missing exports
+
 ## 0.2.14
 
 ### Patch Changes
