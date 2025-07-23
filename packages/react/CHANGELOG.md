@@ -1,5 +1,11 @@
 # @assistant-ui/react
 
+## 0.10.28
+
+### Patch Changes
+
+- c823efe: feat: add `runtime.thread.reset()` method for clearing thread
+
 ## 0.10.27
 
 ### Patch Changes
