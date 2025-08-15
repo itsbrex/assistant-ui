@@ -1,5 +1,11 @@
 # @assistant-ui/react-ai-sdk
 
+## 1.0.2
+
+### Patch Changes
+
+- 672db5a: feat: frontend function calling support
+
 ## 1.0.1
 
 ### Patch Changes
