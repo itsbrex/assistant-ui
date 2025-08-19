@@ -1,5 +1,12 @@
 # @assistant-ui/react-ai-sdk
 
+## 1.0.3
+
+### Patch Changes
+
+- ceedf45: feat: pass run-config to ai-sdk metadata to let user decide what to do after
+- 5504836: pass callsettings in extra body object to AI chat transport
+
 ## 1.0.2
 
 ### Patch Changes
