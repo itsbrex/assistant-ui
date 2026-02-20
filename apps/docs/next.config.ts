@@ -10,7 +10,7 @@ const cspHeader = `
     frame-src *;
     script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""};
     style-src 'self' 'unsafe-inline';
-    img-src 'self' blob: data:;
+    img-src * blob: data:;
     font-src 'self';
     object-src 'none';
     base-uri 'self';
