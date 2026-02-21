@@ -22,18 +22,6 @@ const config: NextConfig = {
   transpilePackages: ["@assistant-ui/*", "shiki"],
   serverExternalPackages: ["twoslash"],
   skipTrailingSlashRedirect: true,
-  redirects: async () => [
-    {
-      source: "/docs/getting-started",
-      destination: "/docs",
-      permanent: true,
-    },
-    {
-      source: "/chatgpt-app-studio",
-      destination: "/mcp-app-studio",
-      permanent: true,
-    },
-  ],
   headers: async () => [
     {
       source: "/(.*)",
@@ -47,6 +35,20 @@ const config: NextConfig = {
   ],
   rewrites: async () => ({
     beforeFiles: [
+      {
+        source: "/",
+        has: [
+          { type: "header", key: "accept", value: "(?:.*text/markdown.*)" },
+        ],
+        destination: "/llms.txt",
+      },
+      {
+        source: "/docs/:path*",
+        has: [
+          { type: "header", key: "accept", value: "(?:.*text/markdown.*)" },
+        ],
+        destination: "/llms.mdx/:path*",
+      },
       {
         source: "/umami/:path*",
         destination: "https://assistant-ui-umami.vercel.app/:path*",
