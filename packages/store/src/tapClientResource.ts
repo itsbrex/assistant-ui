@@ -5,17 +5,17 @@ import {
   type ResourceElement,
   tapResource,
 } from "@assistant-ui/tap";
-import type { ClientMethods } from "../types/client";
+import type { ClientMethods } from "./types/client";
 import {
   tapClientStack,
   tapWithClientStack,
   SYMBOL_CLIENT_INDEX,
-} from "./tap-client-stack-context";
+} from "./utils/tap-client-stack-context";
 import {
   BaseProxyHandler,
   handleIntrospectionProp,
-} from "./base-proxy-handler";
-import { wrapperResource } from "./wrapper-resource";
+} from "./utils/BaseProxyHandler";
+import { wrapperResource } from "./wrapperResource";
 
 /**
  * Symbol used internally to get state from ClientProxy.

@@ -3,8 +3,8 @@ import type {
   AssistantClient,
   ClientElement,
   ClientNames,
-} from "../types/client";
-import type { DerivedElement } from "./derived";
+} from "./types/client";
+import type { DerivedElement } from "./Derived";
 
 const TRANSFORM_SCOPES = Symbol("assistant-ui.transform-scopes");
 
