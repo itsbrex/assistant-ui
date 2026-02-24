@@ -38,10 +38,23 @@ export type {
   // Attachment types
   Attachment,
   PendingAttachment,
+  CreateAttachment,
   AttachmentRuntime,
+  // Adapter types
+  AttachmentAdapter,
+  ThreadHistoryAdapter,
+  FeedbackAdapter,
+  SuggestionAdapter,
+  // Model context types
+  ModelContext,
+  ModelContextProvider,
+  LanguageModelConfig,
+  LanguageModelV1CallSettings,
   // Other
   Unsubscribe,
 } from "@assistant-ui/core";
+
+export { mergeModelContexts, tool } from "@assistant-ui/core";
 
 // Re-export store scope state types
 export type {
@@ -53,12 +66,20 @@ export type {
   ThreadListItemState,
 } from "@assistant-ui/core/store";
 
-// Store hooks
+// Store hooks and components
 export {
   useAui,
   useAuiState,
   useAuiEvent,
   AuiProvider,
+  AuiIf,
+  type AssistantClient,
+  type AssistantState,
+  type AssistantEventScope,
+  type AssistantEventSelector,
+  type AssistantEventName,
+  type AssistantEventPayload,
+  type AssistantEventCallback,
 } from "@assistant-ui/store";
 
 // Context providers and hooks
