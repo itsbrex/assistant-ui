@@ -10,7 +10,7 @@ export type OpenAIModelConfig = {
 
 type OpenAIMessage = {
   role: string;
-  content: string | null;
+  content: string | any[] | null;
   tool_calls?: {
     id: string;
     type: string;
@@ -136,10 +136,28 @@ export function createOpenAIChatModelAdapter(
         .filter((m) => m.role !== "system")
         .flatMap((m) => {
           if (m.role === "user") {
-            const text = m.content
-              .filter((p) => p.type === "text")
+            const textParts = m.content.filter((p) => p.type === "text");
+            const text = textParts
               .map((p) => ("text" in p ? p.text : ""))
               .join("\n");
+
+            // Check for image attachments
+            const imageAttachments = (m.attachments ?? []).flatMap((a) =>
+              (a.content ?? []).filter((c: any) => c.type === "image"),
+            );
+
+            if (imageAttachments.length > 0) {
+              const content: any[] = [];
+              if (text) content.push({ type: "text", text });
+              for (const img of imageAttachments) {
+                content.push({
+                  type: "image_url",
+                  image_url: { url: (img as any).image },
+                });
+              }
+              return [{ role: "user", content }];
+            }
+
             return [{ role: "user", content: text }];
           }
           if (m.role === "assistant") {
