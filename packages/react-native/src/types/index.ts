@@ -1,3 +1,4 @@
+// React component types (from core/react)
 export type {
   EmptyMessagePartComponent,
   EmptyMessagePartProps,
@@ -19,4 +20,4 @@ export type {
   DataMessagePartProps,
   ToolCallMessagePartComponent,
   ToolCallMessagePartProps,
-} from "./MessagePartComponentTypes";
+} from "@assistant-ui/core/react";

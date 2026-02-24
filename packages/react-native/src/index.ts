@@ -1,4 +1,4 @@
-import "./types/store-augmentation";
+import "@assistant-ui/core/react"; // store-augmentation side-effect (tools, dataRenderers scopes)
 
 // Re-export core types
 export type {
@@ -129,6 +129,20 @@ export * from "./primitives/threadList";
 export * from "./primitives/actionBar";
 export * from "./primitives/branchPicker";
 export * from "./primitives/attachment";
+export * from "./primitives/threadListItem";
+export * from "./primitives/chainOfThought";
+export * from "./primitives/suggestion";
+
+// Re-export shared providers from core/react
+export {
+  ThreadListItemByIndexProvider,
+  ChainOfThoughtByIndicesProvider,
+  MessageByIndexProvider,
+  PartByIndexProvider,
+  TextMessagePartProvider,
+  ChainOfThoughtPartByIndexProvider,
+  SuggestionByIndexProvider,
+} from "@assistant-ui/core/react";
 
 // Model context, tools & clients
 export * from "./model-context";
