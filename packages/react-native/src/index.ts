@@ -1,3 +1,5 @@
+import "./types/store-augmentation";
+
 // Re-export core types
 export type {
   // Message types
@@ -45,16 +47,16 @@ export type {
   ThreadHistoryAdapter,
   FeedbackAdapter,
   SuggestionAdapter,
-  // Model context types
-  ModelContext,
-  ModelContextProvider,
-  LanguageModelConfig,
-  LanguageModelV1CallSettings,
   // Other
   Unsubscribe,
 } from "@assistant-ui/core";
 
-export { mergeModelContexts, tool } from "@assistant-ui/core";
+// Re-export core remote thread list types
+export type {
+  RemoteThreadListAdapter,
+  RemoteThreadListOptions,
+} from "@assistant-ui/core";
+export { InMemoryThreadListAdapter } from "@assistant-ui/core";
 
 // Re-export store scope state types
 export type {
@@ -111,13 +113,6 @@ export {
   useRemoteThreadListRuntime,
 } from "./runtimes";
 
-// Re-export core remote thread list types
-export type {
-  RemoteThreadListAdapter,
-  RemoteThreadListOptions,
-} from "@assistant-ui/core";
-export { InMemoryThreadListAdapter } from "@assistant-ui/core";
-
 // Primitives
 export * from "./primitives/thread";
 export * from "./primitives/composer";
@@ -125,6 +120,11 @@ export * from "./primitives/message";
 export * from "./primitives/threadList";
 export * from "./primitives/actionBar";
 export * from "./primitives/branchPicker";
+
+// Model context, tools & clients
+export * from "./model-context";
+export * from "./client";
+export * from "./types";
 
 // Adapters
 export {
