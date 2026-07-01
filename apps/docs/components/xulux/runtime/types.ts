@@ -15,6 +15,23 @@ export type XuluxCanvasSnapshot = {
   title?: string;
 };
 
+export type XuluxJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | XuluxJsonValue[]
+  | { [key: string]: XuluxJsonValue };
+export type XuluxJsonObject = { [key: string]: XuluxJsonValue };
+
+export type XuluxActivePreviewContext = {
+  source: "template_modal" | "agent_tool";
+  templateId: string;
+  versionId?: string | null;
+  customized: boolean;
+  config?: XuluxJsonObject;
+};
+
 export type XuluxThreadCustom = {
   xuluxStatus: XuluxThreadStatus;
   sessionId: string;
@@ -22,6 +39,7 @@ export type XuluxThreadCustom = {
   pendingUserMessage?: string | null;
   selectedTemplate?: SelectedTemplateContext | null;
   canvas?: XuluxCanvasSnapshot;
+  activePreviewContext?: XuluxActivePreviewContext | null;
 };
 
 export type XuluxStoredThread = {

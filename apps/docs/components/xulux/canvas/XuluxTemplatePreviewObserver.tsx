@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { XuluxPreviewFrame } from "../templates/types";
 import { useAuiState, type ToolCallMessagePart } from "@assistant-ui/react";
+import type { XuluxJsonObject } from "../runtime/types";
 
 type OpenTemplatePreviewResult =
   | {
@@ -14,6 +15,8 @@ type OpenTemplatePreviewResult =
       previewFrame?: XuluxPreviewFrame;
       title: string;
       summary?: string;
+      customized?: boolean;
+      config?: XuluxJsonObject;
     }
   | {
       success: false;
@@ -27,6 +30,8 @@ type TemplatePreviewReady = {
   templateId: string;
   versionId?: string;
   title: string;
+  customized: boolean;
+  config?: XuluxJsonObject;
 };
 
 function isOpenTemplatePreviewCall(part: unknown): part is ToolCallMessagePart {
@@ -89,6 +94,8 @@ export function XuluxTemplatePreviewObserver({
           ? { versionId: payload.versionId }
           : {}),
         title: payload.title,
+        customized: payload.customized ?? false,
+        ...(payload.config ? { config: payload.config } : {}),
       });
     } else {
       onCanvasError(payload.error);

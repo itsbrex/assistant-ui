@@ -1419,6 +1419,7 @@ export function createTemplateTools() {
             downloadUrl: entry.downloadUrl,
             previewFrame: entry.previewFrame,
             title: entry.title,
+            customized: false,
             summary: `Opened ${entry.title} as a fixed demo.`,
           };
         }
@@ -1500,6 +1501,7 @@ export function createTemplateTools() {
           downloadUrl: entry.downloadUrl ?? `${baseUrl}/api/download`,
           ...(entry.previewFrame ? { previewFrame: entry.previewFrame } : {}),
           title: entry.title,
+          customized: false,
           summary: `Opened ${entry.title}.`,
         };
       },
