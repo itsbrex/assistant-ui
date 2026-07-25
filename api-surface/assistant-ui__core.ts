@@ -3295,7 +3295,7 @@ type RemoteThreadData = {
 
 type RemoteThreadInitializeResponse = {
   remoteId: string;
-  externalId: string | undefined;
+  externalId?: string | undefined;
 };
 
 type RemoteThreadListAdapter = {
@@ -3583,7 +3583,10 @@ declare class RemoteThreadListThreadListRuntimeCore extends BaseSubscribable imp
     unarchive?: boolean;
   }): Promise<void>;
   switchToNewThread(): Promise<void>;
-  initialize: (threadId: string) => Promise<RemoteThreadInitializeResponse>;
+  initialize: (threadId: string) => Promise<{
+    remoteId: string;
+    externalId: string | undefined;
+  }>;
   generateTitle: (threadId: string) => Promise<void>;
   rename(threadIdOrRemoteId: string, newTitle: string): Promise<void>;
   updateCustom(threadIdOrRemoteId: string, custom: Record<string, unknown> | undefined): Promise<void>;
