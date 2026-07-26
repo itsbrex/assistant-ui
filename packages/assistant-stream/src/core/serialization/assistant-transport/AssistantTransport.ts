@@ -7,22 +7,38 @@ import {
 } from "../../utils/stream/SSEEventDecoderStream";
 import type { AssistantStreamEncoder } from "../../AssistantStream";
 
-const KNOWN_CHUNK_TYPES: Record<
-  AssistantStreamChunk["type"],
-  "message" | "part-addressed"
-> = {
-  "part-start": "message",
-  "part-finish": "part-addressed",
-  "tool-call-args-text-finish": "part-addressed",
-  "text-delta": "part-addressed",
-  annotations: "message",
-  data: "message",
-  "step-start": "message",
-  "step-finish": "message",
-  "message-finish": "message",
-  result: "part-addressed",
-  error: "message",
-  "update-state": "message",
+type ChunkFields = Record<string, unknown>;
+
+type ChunkRule = {
+  kind: "message" | "part-addressed";
+  valid: (chunk: ChunkFields) => boolean;
+};
+
+const noFields = () => true;
+const requiredObject = (key: string) => (c: ChunkFields) => {
+  const value = c[key];
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+};
+const requiredString = (key: string) => (c: ChunkFields) =>
+  typeof c[key] === "string";
+const requiredArray = (key: string) => (c: ChunkFields) =>
+  Array.isArray(c[key]);
+const optionalBoolean = (key: string) => (c: ChunkFields) =>
+  c[key] === undefined || typeof c[key] === "boolean";
+
+const KNOWN_CHUNK_TYPES: Record<AssistantStreamChunk["type"], ChunkRule> = {
+  "part-start": { kind: "message", valid: requiredObject("part") },
+  "part-finish": { kind: "part-addressed", valid: noFields },
+  "tool-call-args-text-finish": { kind: "part-addressed", valid: noFields },
+  "text-delta": { kind: "part-addressed", valid: requiredString("textDelta") },
+  annotations: { kind: "message", valid: requiredArray("annotations") },
+  data: { kind: "message", valid: requiredArray("data") },
+  "step-start": { kind: "message", valid: noFields },
+  "step-finish": { kind: "message", valid: requiredString("finishReason") },
+  "message-finish": { kind: "message", valid: requiredString("finishReason") },
+  result: { kind: "part-addressed", valid: optionalBoolean("isError") },
+  error: { kind: "message", valid: noFields },
+  "update-state": { kind: "message", valid: requiredArray("operations") },
 };
 
 const parseChunk = (data: string): AssistantStreamChunk | string => {
@@ -40,9 +56,11 @@ const parseChunk = (data: string): AssistantStreamChunk | string => {
     !Object.prototype.hasOwnProperty.call(KNOWN_CHUNK_TYPES, type)
   )
     return "unknown-type";
+  const rule = KNOWN_CHUNK_TYPES[type as AssistantStreamChunk["type"]];
+  if (!rule.valid(value as Record<string, unknown>))
+    return `invalid-fields:${type}`;
   if (path === undefined) {
-    if (KNOWN_CHUNK_TYPES[type as AssistantStreamChunk["type"]] !== "message")
-      return `missing-path:${type}`;
+    if (rule.kind !== "message") return `missing-path:${type}`;
     return { ...value, path: [] } as unknown as AssistantStreamChunk;
   }
   if (
