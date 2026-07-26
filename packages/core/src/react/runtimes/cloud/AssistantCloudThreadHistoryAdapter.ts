@@ -102,6 +102,21 @@ class AssistantCloudThreadHistoryAdapter implements ThreadHistoryAdapter {
     }
   }
 
+  async update(item: ExportedMessageRepositoryItem) {
+    if (!this._persistence.isPersisted(item.message.id)) {
+      return this.append(item);
+    }
+    const { message } = item;
+    const remoteId = this.aui.threadListItem().getState().remoteId;
+    if (!remoteId) return;
+    const encoded = auiV0Encode(message);
+    await this._persistence.update(remoteId, message.id, "aui/v0", encoded);
+
+    if (this.cloudRef.current.telemetry.enabled) {
+      this._maybeReportRun(remoteId, "aui/v0", encoded);
+    }
+  }
+
   async delete() {
     throw new Error(
       "Assistant Cloud does not support deleting thread messages yet.",
@@ -341,7 +356,7 @@ const AUI_STATUS_MAP: Record<string, TelemetryData["status"]> = {
   incomplete: "incomplete",
 };
 
-function extractAuiV0<T>(content: T): TelemetryData | null {
+export function extractAuiV0<T>(content: T): TelemetryData | null {
   const msg = content as {
     role?: string;
     status?: { type: string };
@@ -369,6 +384,9 @@ function extractAuiV0<T>(content: T): TelemetryData | null {
   };
 
   if (msg.role !== "assistant") return null;
+  // A paused (requires-action) write is not a finished run; reporting it would
+  // mislabel it "completed" and double-count steps once the terminal write reports.
+  if (msg.status?.type === "requires-action") return null;
 
   const toolCalls = msg.content
     ?.filter((p) => p.type === "tool-call" && p.toolName && p.toolCallId)

@@ -7,6 +7,7 @@ import type {
 } from "../../runtime/utils/chat-model-adapter";
 import type { AppendMessage } from "../../types/message";
 import type { LocalRuntimeOptionsBase } from "./local-runtime-options";
+import type { ExportedMessageRepositoryItem } from "../../runtime/utils/message-repository";
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -18,6 +19,8 @@ const createThread = (
   adapter: ChatModelAdapter,
   options?: {
     suggestion?: LocalRuntimeOptionsBase["adapters"]["suggestion"];
+    history?: LocalRuntimeOptionsBase["adapters"]["history"];
+    maxSteps?: number;
   },
 ) => {
   const core = new LocalRuntimeCore(
@@ -27,8 +30,12 @@ const createThread = (
         ...(options?.suggestion !== undefined && {
           suggestion: options.suggestion,
         }),
+        ...(options?.history !== undefined && {
+          history: options.history,
+        }),
       },
       unstable_humanToolNames: ["send_email"],
+      ...(options?.maxSteps !== undefined && { maxSteps: options.maxSteps }),
     },
     undefined,
   );
@@ -639,5 +646,445 @@ describe("LocalThreadRuntimeCore suggestions", () => {
     resolveSuggestions([{ prompt: "follow up" }]);
     await new Promise((r) => setTimeout(r, 0));
     expect(thread.suggestions).toEqual([{ prompt: "follow up" }]);
+  });
+});
+
+describe("LocalThreadRuntimeCore tool approval persistence", () => {
+  const createHistory = (options?: { update?: boolean }) => {
+    const appended: ExportedMessageRepositoryItem[] = [];
+    const updated: ExportedMessageRepositoryItem[] = [];
+    const history = {
+      async load() {
+        return { messages: [] };
+      },
+      async append(item: ExportedMessageRepositoryItem) {
+        appended.push(item);
+      },
+      ...(options?.update !== false && {
+        async update(item: ExportedMessageRepositoryItem) {
+          updated.push(item);
+        },
+      }),
+    };
+    return { history, appended, updated };
+  };
+
+  const createApprovalThreadWithHistory = (
+    history: LocalRuntimeOptionsBase["adapters"]["history"],
+  ) => {
+    const runs: ChatModelRunOptions[] = [];
+    return createThread(
+      {
+        async run(options) {
+          runs.push(options);
+          if (runs.length === 1)
+            return toolCallResult("send_email", { id: "a1" });
+          return { content: [{ type: "text", text: "done" }] };
+        },
+      },
+      { history },
+    );
+  };
+
+  it("persists a run paused for approval and rewrites it once the run finishes", async () => {
+    const { history, appended, updated } = createHistory();
+    const thread = createApprovalThreadWithHistory(history);
+
+    await thread.append(userMessage("send an email"));
+    await flush();
+
+    const assistant = appended.find((i) => i.message.role === "assistant");
+    expect(assistant?.message.status?.type).toBe("requires-action");
+
+    thread.respondToToolApproval({ approvalId: "a1", approved: true });
+    await flush();
+
+    expect(thread.messages.at(-1)?.status?.type).toBe("complete");
+    expect(
+      appended.filter((i) => i.message.id === assistant?.message.id),
+    ).toHaveLength(1);
+    expect(updated.at(-1)?.message.id).toBe(assistant?.message.id);
+    expect(updated.at(-1)?.message.status?.type).toBe("complete");
+  });
+
+  it("keeps the append-only behavior for adapters without update", async () => {
+    const { history, appended } = createHistory({ update: false });
+    const thread = createApprovalThreadWithHistory(history);
+
+    await thread.append(userMessage("send an email"));
+    await flush();
+
+    expect(appended.some((i) => i.message.role === "assistant")).toBe(false);
+
+    thread.respondToToolApproval({ approvalId: "a1", approved: true });
+    await flush();
+
+    const assistants = appended.filter((i) => i.message.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.message.status?.type).toBe("complete");
+  });
+
+  it("rewrites a restored paused message instead of appending a duplicate", async () => {
+    const { history, appended, updated } = createHistory();
+    const runs: ChatModelRunOptions[] = [];
+    const paused: ExportedMessageRepositoryItem = {
+      parentId: null,
+      message: {
+        id: "restored",
+        role: "assistant",
+        content: [toolCallPart("send_email", { id: "a1" })],
+        status: { type: "requires-action", reason: "tool-calls" },
+        createdAt: new Date(),
+        metadata: {
+          unstable_state: null,
+          unstable_annotations: [],
+          unstable_data: [],
+          steps: [],
+          custom: {},
+        },
+      },
+    };
+    const thread = createThread(
+      {
+        async run(options) {
+          runs.push(options);
+          return { content: [{ type: "text", text: "done" }] };
+        },
+      },
+      {
+        history: {
+          ...history,
+          async load() {
+            return { headId: "restored", messages: [paused] };
+          },
+        },
+      },
+    );
+
+    thread.__internal_load();
+    await flush();
+
+    thread.respondToToolApproval({ approvalId: "a1", approved: true });
+    await flush();
+
+    expect(runs).toHaveLength(1);
+    expect(appended).toHaveLength(0);
+    expect(updated.at(-1)?.message.id).toBe("restored");
+    expect(updated.at(-1)?.message.status?.type).toBe("complete");
+  });
+
+  it("still appends a restored paused message when the adapter cannot update", async () => {
+    const { history, appended } = createHistory({ update: false });
+    const paused: ExportedMessageRepositoryItem = {
+      parentId: null,
+      message: {
+        id: "restored",
+        role: "assistant",
+        content: [toolCallPart("send_email", { id: "a1" })],
+        status: { type: "requires-action", reason: "tool-calls" },
+        createdAt: new Date(),
+        metadata: {
+          unstable_state: null,
+          unstable_annotations: [],
+          unstable_data: [],
+          steps: [],
+          custom: {},
+        },
+      },
+    };
+    const thread = createThread(
+      {
+        async run() {
+          return { content: [{ type: "text", text: "done" }] };
+        },
+      },
+      {
+        history: {
+          ...history,
+          async load() {
+            return { headId: "restored", messages: [paused] };
+          },
+        },
+      },
+    );
+
+    thread.__internal_load();
+    await flush();
+
+    thread.respondToToolApproval({ approvalId: "a1", approved: true });
+    await flush();
+
+    expect(appended).toHaveLength(1);
+    expect(appended[0]?.message.id).toBe("restored");
+    expect(appended[0]?.message.status?.type).toBe("complete");
+  });
+
+  it("persists a partial approval decision while another tool call is still pending", async () => {
+    const { history, updated } = createHistory();
+    const runs: ChatModelRunOptions[] = [];
+    const twoPendingApprovals: ChatModelRunResult = {
+      content: [
+        { ...toolCallPart("send_email", { id: "a1" }), toolCallId: "call-1" },
+        { ...toolCallPart("send_email", { id: "a2" }), toolCallId: "call-2" },
+      ],
+      status: { type: "requires-action", reason: "tool-calls" },
+    };
+    const thread = createThread(
+      {
+        async run(options) {
+          runs.push(options);
+          if (runs.length === 1) return twoPendingApprovals;
+          return { content: [{ type: "text", text: "done" }] };
+        },
+      },
+      { history },
+    );
+
+    await thread.append(userMessage("send two emails"));
+    await flush();
+
+    const assistant = thread.messages.at(-1)!;
+    expect(assistant.status?.type).toBe("requires-action");
+
+    thread.respondToToolApproval({ approvalId: "a1", approved: true });
+    await flush();
+
+    // The second approval is still pending, so the run must not resume yet —
+    // but the first decision has to survive a refresh in the meantime.
+    expect(runs).toHaveLength(1);
+    const persisted = updated
+      .at(-1)
+      ?.message.content.find(
+        (c) => c.type === "tool-call" && c.toolCallId === "call-1",
+      );
+    expect(
+      persisted?.type === "tool-call" && persisted.approval?.approved,
+    ).toBe(true);
+  });
+
+  it("persists a partial tool result while another human tool call is still pending", async () => {
+    const { history, updated } = createHistory();
+    const runs: ChatModelRunOptions[] = [];
+    const twoHumanTools: ChatModelRunResult = {
+      content: [
+        {
+          type: "tool-call",
+          toolCallId: "call-1",
+          toolName: "send_email",
+          args: {},
+          argsText: "{}",
+        },
+        {
+          type: "tool-call",
+          toolCallId: "call-2",
+          toolName: "send_email",
+          args: {},
+          argsText: "{}",
+        },
+      ],
+      status: { type: "requires-action", reason: "tool-calls" },
+    };
+    const thread = createThread(
+      {
+        async run(options) {
+          runs.push(options);
+          if (runs.length === 1) return twoHumanTools;
+          return { content: [{ type: "text", text: "done" }] };
+        },
+      },
+      { history },
+    );
+
+    await thread.append(userMessage("send two emails"));
+    await flush();
+
+    const assistant = thread.messages.at(-1)!;
+
+    thread.addToolResult({
+      messageId: assistant.id,
+      toolName: "send_email",
+      toolCallId: "call-1",
+      result: { ok: true },
+      isError: false,
+    });
+    await flush();
+
+    expect(runs).toHaveLength(1);
+    const persisted = updated
+      .at(-1)
+      ?.message.content.find(
+        (c) => c.type === "tool-call" && c.toolCallId === "call-1",
+      );
+    expect(persisted?.type === "tool-call" && persisted.result).toEqual({
+      ok: true,
+    });
+  });
+
+  it("persists a multi-step run once instead of writing intermediate steps", async () => {
+    const { history, appended, updated } = createHistory();
+    const runs: ChatModelRunOptions[] = [];
+    const thread = createThread(
+      {
+        async run(options) {
+          runs.push(options);
+          if (runs.length === 1)
+            return {
+              content: [
+                { ...toolCallPart("lookup_weather"), result: { ok: true } },
+              ],
+              status: { type: "requires-action", reason: "tool-calls" },
+            };
+          return { content: [{ type: "text", text: "done" }] };
+        },
+      },
+      { history },
+    );
+
+    await thread.append(userMessage("what is the weather"));
+    await flush();
+
+    expect(runs).toHaveLength(2);
+    const assistants = appended.filter((i) => i.message.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.message.status?.type).toBe("complete");
+    expect(updated).toHaveLength(0);
+  });
+
+  it("rewrites the same entry when a resumed run pauses again", async () => {
+    const { history, appended, updated } = createHistory();
+    const runs: ChatModelRunOptions[] = [];
+    const thread = createThread(
+      {
+        async run(options) {
+          runs.push(options);
+          if (runs.length === 1)
+            return toolCallResult("send_email", { id: "a1" });
+          if (runs.length === 2)
+            return {
+              content: [
+                {
+                  ...toolCallPart("send_email", { id: "a2" }),
+                  toolCallId: "call-2",
+                },
+              ],
+              status: { type: "requires-action", reason: "tool-calls" },
+            };
+          return { content: [{ type: "text", text: "done" }] };
+        },
+      },
+      { history },
+    );
+
+    await thread.append(userMessage("send two emails"));
+    await flush();
+
+    thread.respondToToolApproval({ approvalId: "a1", approved: true });
+    await flush();
+
+    expect(thread.messages.at(-1)?.status?.type).toBe("requires-action");
+
+    thread.respondToToolApproval({ approvalId: "a2", approved: true });
+    await flush();
+
+    expect(runs).toHaveLength(3);
+    const assistants = appended.filter((i) => i.message.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(assistants[0]?.message.status?.type).toBe("requires-action");
+    expect(updated).toHaveLength(2);
+    expect(
+      updated.every((i) => i.message.id === assistants[0]?.message.id),
+    ).toBe(true);
+    expect(updated.at(-1)?.message.status?.type).toBe("complete");
+  });
+
+  it("finalizes the history entry when a resumed run hits max steps", async () => {
+    const { history, appended, updated } = createHistory();
+    const runs: ChatModelRunOptions[] = [];
+    const thread = createThread(
+      {
+        async run(options) {
+          runs.push(options);
+          return {
+            content: [toolCallPart("send_email", { id: "a1" })],
+            status: { type: "requires-action", reason: "tool-calls" },
+            metadata: { steps: [{}] },
+          };
+        },
+      },
+      { history, maxSteps: 1 },
+    );
+
+    await thread.append(userMessage("send an email"));
+    await flush();
+
+    thread.respondToToolApproval({ approvalId: "a1", approved: true });
+    await flush();
+
+    expect(runs).toHaveLength(1);
+    expect(thread.messages.at(-1)?.status?.type).toBe("incomplete");
+    const assistants = appended.filter((i) => i.message.role === "assistant");
+    expect(assistants).toHaveLength(1);
+    expect(updated).toHaveLength(1);
+    expect(updated.at(-1)?.message.status?.type).toBe("incomplete");
+  });
+
+  it("orders the terminal rewrite after an in-flight partial decision write", async () => {
+    const order: string[] = [];
+    let releasePartial!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releasePartial = resolve;
+    });
+    const history = {
+      async load() {
+        return { messages: [] };
+      },
+      async append() {},
+      async update(item: ExportedMessageRepositoryItem) {
+        const kind =
+          item.message.status?.type === "requires-action"
+            ? "partial"
+            : "terminal";
+        order.push(`${kind}:start`);
+        if (kind === "partial") await gate;
+        order.push(`${kind}:end`);
+      },
+    };
+    const runs: ChatModelRunOptions[] = [];
+    const twoPendingApprovals: ChatModelRunResult = {
+      content: [
+        { ...toolCallPart("send_email", { id: "a1" }), toolCallId: "call-1" },
+        { ...toolCallPart("send_email", { id: "a2" }), toolCallId: "call-2" },
+      ],
+      status: { type: "requires-action", reason: "tool-calls" },
+    };
+    const thread = createThread(
+      {
+        async run(options) {
+          runs.push(options);
+          if (runs.length === 1) return twoPendingApprovals;
+          return { content: [{ type: "text", text: "done" }] };
+        },
+      },
+      { history },
+    );
+
+    await thread.append(userMessage("send two emails"));
+    await flush();
+
+    thread.respondToToolApproval({ approvalId: "a1", approved: true });
+    thread.respondToToolApproval({ approvalId: "a2", approved: true });
+    await flush();
+
+    expect(order).toEqual(["partial:start"]);
+
+    releasePartial();
+    await flush();
+
+    expect(order).toEqual([
+      "partial:start",
+      "partial:end",
+      "terminal:start",
+      "terminal:end",
+    ]);
   });
 });
