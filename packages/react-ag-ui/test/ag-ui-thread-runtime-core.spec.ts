@@ -2953,6 +2953,320 @@ describe("AGUIThreadRuntimeCore", () => {
     );
   });
 
+  it("attaches an mcp-apps ACTIVITY_SNAPSHOT for a restored tool call to its owning message", async () => {
+    const callToolResult = {
+      content: [{ type: "text", text: "22C" }],
+      structuredContent: { temperature: "22C" },
+      isError: false,
+    };
+    const runAgent = vi.fn(async (_input: any, subscriber: any) => {
+      subscriber.onMessagesSnapshotEvent?.({
+        event: {
+          type: "MESSAGES_SNAPSHOT",
+          messages: [
+            {
+              id: "msg-1",
+              role: "user",
+              content: "What's the weather?",
+            },
+            {
+              id: "msg-2",
+              role: "assistant",
+              content: "",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  type: "function",
+                  function: {
+                    name: "get_weather",
+                    arguments: '{"city":"Paris"}',
+                  },
+                },
+              ],
+            },
+            {
+              id: "msg-3",
+              role: "tool",
+              toolCallId: "call-1",
+              content: '{"temperature":"22C"}',
+            },
+          ],
+        },
+      });
+      subscriber.onActivitySnapshotEvent?.({
+        event: {
+          type: "ACTIVITY_SNAPSHOT",
+          activityType: "mcp-apps",
+          content: {
+            toolCallId: "call-1",
+            result: callToolResult,
+            resourceUri: "ui://srv/mcp-app.html",
+            serverId: "srv",
+          },
+        },
+      });
+      subscriber.onRunFinalized?.();
+    });
+    const agent = { runAgent } as unknown as HttpAgent;
+
+    const core = createCore(agent);
+    await core.append(createAppendMessage());
+
+    const assistant = core
+      .getMessages()
+      .find((m) => m.role === "assistant") as ThreadAssistantMessage;
+    const toolPart = assistant.content.find(
+      (p) => p.type === "tool-call",
+    ) as any;
+    expect(toolPart.mcp.app).toEqual({
+      resourceUri: "ui://srv/mcp-app.html",
+      serverId: "srv",
+    });
+    expect(toolPart.result).toEqual(callToolResult);
+    expect(toolPart.isError).toBe(false);
+    expect(toolPart.modelContent).toEqual([
+      { type: "text", text: '{"temperature":"22C"}' },
+    ]);
+  });
+
+  it("applies a later cross-run result when the snapshot only attached the app", async () => {
+    const runAgent = vi.fn(async (_input: any, subscriber: any) => {
+      subscriber.onMessagesSnapshotEvent?.({
+        event: {
+          type: "MESSAGES_SNAPSHOT",
+          messages: [
+            { id: "msg-1", role: "user", content: "What's the weather?" },
+            {
+              id: "msg-2",
+              role: "assistant",
+              content: "",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  type: "function",
+                  function: {
+                    name: "get_weather",
+                    arguments: '{"city":"Paris"}',
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      });
+      subscriber.onActivitySnapshotEvent?.({
+        event: {
+          type: "ACTIVITY_SNAPSHOT",
+          activityType: "mcp-apps",
+          content: {
+            toolCallId: "call-1",
+            resourceUri: "ui://srv/mcp-app.html",
+            serverId: "srv",
+          },
+        },
+      });
+      subscriber.onToolCallResultEvent?.({
+        event: {
+          type: "TOOL_CALL_RESULT",
+          toolCallId: "call-1",
+          messageId: "tool-msg-1",
+          role: "tool",
+          content: '{"temperature":"22C"}',
+        },
+      });
+      subscriber.onRunFinalized?.();
+    });
+    const agent = { runAgent } as unknown as HttpAgent;
+
+    const core = createCore(agent);
+    await core.append(createAppendMessage());
+
+    const assistant = core
+      .getMessages()
+      .find((m) => m.role === "assistant") as ThreadAssistantMessage;
+    const toolPart = assistant.content.find(
+      (p) => p.type === "tool-call",
+    ) as any;
+    expect(toolPart.mcp.app).toEqual({
+      resourceUri: "ui://srv/mcp-app.html",
+      serverId: "srv",
+    });
+    expect(toolPart.result).toEqual({ temperature: "22C" });
+  });
+
+  it("preserves the snapshot result when a later cross-run TOOL_CALL_RESULT arrives", async () => {
+    const callToolResult = {
+      content: [{ type: "text", text: "22C" }],
+      structuredContent: { temperature: "22C" },
+      isError: false,
+    };
+    const runAgent = vi.fn(async (_input: any, subscriber: any) => {
+      subscriber.onMessagesSnapshotEvent?.({
+        event: {
+          type: "MESSAGES_SNAPSHOT",
+          messages: [
+            { id: "msg-1", role: "user", content: "What's the weather?" },
+            {
+              id: "msg-2",
+              role: "assistant",
+              content: "",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  type: "function",
+                  function: {
+                    name: "get_weather",
+                    arguments: '{"city":"Paris"}',
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      });
+      subscriber.onActivitySnapshotEvent?.({
+        event: {
+          type: "ACTIVITY_SNAPSHOT",
+          activityType: "mcp-apps",
+          content: {
+            toolCallId: "call-1",
+            result: callToolResult,
+            resourceUri: "ui://srv/mcp-app.html",
+            serverId: "srv",
+          },
+        },
+      });
+      subscriber.onToolCallResultEvent?.({
+        event: {
+          type: "TOOL_CALL_RESULT",
+          toolCallId: "call-1",
+          messageId: "tool-msg-1",
+          role: "tool",
+          content: '{"temperature":"22C"}',
+        },
+      });
+      subscriber.onRunFinalized?.();
+    });
+    const agent = { runAgent } as unknown as HttpAgent;
+
+    const core = createCore(agent);
+    await core.append(createAppendMessage());
+
+    const assistant = core
+      .getMessages()
+      .find((m) => m.role === "assistant") as ThreadAssistantMessage;
+    const toolPart = assistant.content.find(
+      (p) => p.type === "tool-call",
+    ) as any;
+    expect(toolPart.result).toEqual(callToolResult);
+    expect(toolPart.modelContent).toEqual([
+      { type: "text", text: '{"temperature":"22C"}' },
+    ]);
+  });
+
+  it("clears a stale cross-run error when the snapshot result succeeds", async () => {
+    const runAgent = vi.fn(async (_input: any, subscriber: any) => {
+      subscriber.onMessagesSnapshotEvent?.({
+        event: {
+          type: "MESSAGES_SNAPSHOT",
+          messages: [
+            { id: "msg-1", role: "user", content: "What's the weather?" },
+            {
+              id: "msg-2",
+              role: "assistant",
+              content: "",
+              toolCalls: [
+                {
+                  id: "call-1",
+                  type: "function",
+                  function: {
+                    name: "get_weather",
+                    arguments: '{"city":"Paris"}',
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      });
+      subscriber.onToolCallResultEvent?.({
+        event: {
+          type: "TOOL_CALL_RESULT",
+          toolCallId: "call-1",
+          messageId: "tool-msg-1",
+          role: "tool",
+          content: "boom",
+          mcpResult: {
+            content: [{ type: "text", text: "boom" }],
+            isError: true,
+          },
+        },
+      });
+      subscriber.onActivitySnapshotEvent?.({
+        event: {
+          type: "ACTIVITY_SNAPSHOT",
+          activityType: "mcp-apps",
+          content: {
+            toolCallId: "call-1",
+            result: { content: [{ type: "text", text: "22C" }] },
+            resourceUri: "ui://srv/mcp-app.html",
+            serverId: "srv",
+          },
+        },
+      });
+      subscriber.onRunFinalized?.();
+    });
+    const agent = { runAgent } as unknown as HttpAgent;
+
+    const core = createCore(agent);
+    await core.append(createAppendMessage());
+
+    const assistant = core
+      .getMessages()
+      .find((m) => m.role === "assistant") as ThreadAssistantMessage;
+    const toolPart = assistant.content.find(
+      (p) => p.type === "tool-call",
+    ) as any;
+    expect(toolPart.isError).toBe(false);
+    expect(toolPart.result).toEqual({
+      content: [{ type: "text", text: "22C" }],
+    });
+  });
+
+  it("falls back to the aggregator when an mcp-apps ACTIVITY_SNAPSHOT has no owning message", async () => {
+    const runAgent = vi.fn(async (_input: any, subscriber: any) => {
+      subscriber.onActivitySnapshotEvent?.({
+        event: {
+          type: "ACTIVITY_SNAPSHOT",
+          activityType: "mcp-apps",
+          content: {
+            toolCallId: "orphan-1",
+            result: { content: [], isError: false },
+            resourceUri: "ui://srv/mcp-app.html",
+          },
+        },
+      });
+      subscriber.onTextMessageContentEvent?.({
+        event: { type: "TEXT_MESSAGE_CONTENT", delta: "Hello" },
+      });
+      subscriber.onRunFinalized?.();
+    });
+    const agent = { runAgent } as unknown as HttpAgent;
+
+    const core = createCore(agent);
+    await core.append(createAppendMessage());
+
+    const assistant = core
+      .getMessages()
+      .find((m) => m.role === "assistant") as ThreadAssistantMessage;
+    expect(
+      assistant.content.filter((p) => p.type === "tool-call"),
+    ).toHaveLength(0);
+    expect(assistant.content).toContainEqual(
+      expect.objectContaining({ type: "text", text: "Hello" }),
+    );
+  });
+
   it("rejects interrupt resume that does not cover every open interrupt", async () => {
     const runAgent = vi.fn(async (input: any, subscriber: any) => {
       subscriber.onRunFinishedEvent?.({

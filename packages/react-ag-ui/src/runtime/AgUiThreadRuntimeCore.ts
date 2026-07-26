@@ -1,6 +1,10 @@
 "use client";
 
-import { generateId, fromThreadMessageLike } from "@assistant-ui/core";
+import {
+  generateId,
+  fromThreadMessageLike,
+  isMcpAppUri,
+} from "@assistant-ui/core";
 import type {
   AddToolResultOptions,
   AppendMessage,
@@ -24,6 +28,8 @@ import type { ReadonlyJSONValue } from "assistant-stream/utils";
 import {
   AG_UI_METADATA_NAMESPACE,
   type AgUiCustomMetadata,
+  isPlainObject,
+  MCP_APPS_ACTIVITY_TYPE,
   RunAggregator,
   tryParseJSON,
 } from "./adapter/run-aggregator";
@@ -1339,6 +1345,22 @@ export class AgUiThreadRuntimeCore {
         aggregator.handle(event);
         return;
       }
+      case "ACTIVITY_SNAPSHOT": {
+        const toolCallId = event.content["toolCallId"];
+        if (
+          event.activityType === MCP_APPS_ACTIVITY_TYPE &&
+          typeof toolCallId === "string" &&
+          !aggregator.hasToolCall(toolCallId)
+        ) {
+          const messageId = this.findMessageIdForToolCall(toolCallId);
+          if (messageId !== undefined) {
+            this.applyCrossRunActivitySnapshot(messageId, toolCallId, event);
+            return;
+          }
+        }
+        aggregator.handle(event);
+        return;
+      }
       default:
         aggregator.handle(event);
     }
@@ -1356,6 +1378,37 @@ export class AgUiThreadRuntimeCore {
         if (part.type !== "tool-call" || part.toolCallId !== event.toolCallId)
           return part;
         matchedToolCall = true;
+        // An applied activity snapshot owns part.result; a later result only
+        // fills what is missing, mirroring the aggregator's finishToolCall.
+        // The aggregator's flag is set only when the snapshot carried a
+        // result, so app presence alone is not enough: the current result
+        // must be CallToolResult-shaped (a required content array).
+        const snapshotResultApplied =
+          part.mcp?.app !== undefined &&
+          isPlainObject(part.result) &&
+          Array.isArray((part.result as Record<string, unknown>)["content"]);
+        if (snapshotResultApplied) {
+          return {
+            ...part,
+            ...(part.modelContent === undefined && event.content
+              ? {
+                  modelContent: [
+                    { type: "text" as const, text: event.content },
+                  ],
+                }
+              : {}),
+            ...(part.isError === undefined
+              ? typeof event.mcpResult?.isError === "boolean"
+                ? { isError: event.mcpResult.isError }
+                : event.role === "tool"
+                  ? { isError: false }
+                  : {}
+              : {}),
+            ...(event.messageId
+              ? { unstable_toolMessageId: event.messageId }
+              : {}),
+          };
+        }
         return {
           ...part,
           result: (event.mcpResult ??
@@ -1381,6 +1434,68 @@ export class AgUiThreadRuntimeCore {
     this.notifyUpdate();
     // Not maybeResumeAfterToolResults: the delivering run is already in
     // flight, and a resume from the owner would reset the head past it.
+    this.maybeCompleteAfterToolResults(messageId);
+  }
+
+  private applyCrossRunActivitySnapshot(
+    messageId: string,
+    toolCallId: string,
+    event: Extract<AgUiEvent, { type: "ACTIVITY_SNAPSHOT" }>,
+  ): void {
+    const resourceUri = event.content["resourceUri"];
+    if (typeof resourceUri !== "string" || !isMcpAppUri(resourceUri)) return;
+    const serverId = event.content["serverId"];
+    const serverHash = event.content["serverHash"];
+    const appServerId =
+      typeof serverId === "string" && serverId.length > 0
+        ? serverId
+        : typeof serverHash === "string" && serverHash.length > 0
+          ? serverHash
+          : undefined;
+    const result = event.content["result"];
+    const updated = this.updateMessage(messageId, (message) => {
+      if (message.role !== "assistant") return message;
+      const assistant = message as ThreadAssistantMessage;
+      let matchedToolCall = false;
+      const content = assistant.content.map((part) => {
+        if (part.type !== "tool-call" || part.toolCallId !== toolCallId)
+          return part;
+        matchedToolCall = true;
+        return {
+          ...part,
+          mcp: {
+            app: {
+              resourceUri,
+              ...(appServerId ? { serverId: appServerId } : {}),
+            },
+          },
+          ...(isPlainObject(result)
+            ? {
+                ...(part.result !== undefined && part.modelContent === undefined
+                  ? {
+                      modelContent: [
+                        {
+                          type: "text" as const,
+                          text:
+                            typeof part.result === "string"
+                              ? part.result
+                              : JSON.stringify(part.result),
+                        },
+                      ],
+                    }
+                  : {}),
+                result: result as ReadonlyJSONValue,
+                isError: result["isError"] === true,
+              }
+            : {}),
+        };
+      });
+      if (!matchedToolCall) return message;
+      return { ...assistant, content };
+    });
+
+    if (!updated) return;
+    this.notifyUpdate();
     this.maybeCompleteAfterToolResults(messageId);
   }
 
