@@ -8,6 +8,10 @@ import {
 import type { ResourceFiber } from "../core/types";
 import { useState } from "../react-hooks/useState";
 
+export type TestFiber<R, A extends readonly unknown[]> = ResourceFiber<R> & {
+  readonly __args?: (args: A) => void;
+};
+
 /**
  * Creates a test resource fiber for unit testing.
  * This is a low-level utility that creates a ResourceFiber directly.
@@ -15,7 +19,7 @@ import { useState } from "../react-hooks/useState";
  */
 export function createTestResource<R, A extends readonly unknown[]>(
   fn: (...args: A) => R,
-) {
+): TestFiber<R, A> {
   const rerenderCallback = (evaluate: () => boolean, apply: () => boolean) => {
     if (!evaluate()) return;
     apply();
@@ -49,7 +53,7 @@ const lastRenderValueMap = new WeakMap<ResourceFiber<any>, any>();
  * - Returns the current state after render
  */
 export function renderTest<R, A extends readonly unknown[]>(
-  fiber: ResourceFiber<R>,
+  fiber: TestFiber<R, A>,
   ...args: A
 ): R {
   propsMap.set(fiber, args);
@@ -135,7 +139,7 @@ export class TestSubscriber<T> {
 export class TestResourceManager<R, A extends readonly unknown[]> {
   private isActive = false;
 
-  constructor(public fiber: ResourceFiber<R>) {}
+  constructor(public fiber: TestFiber<R, A>) {}
 
   renderAndMount(...args: A): R {
     if (this.isActive) {
