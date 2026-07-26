@@ -621,6 +621,9 @@ declare abstract class BaseComposerRuntimeCore extends BaseSubscribable implemen
   setText(value: string): void;
   setRole(role: MessageRole): void;
   setRunConfig(runConfig: RunConfig): void;
+  protected _isSending: boolean;
+  private _removedDuringSend;
+  private _sendGeneration;
   private _emptyTextAndAttachments;
   private _onClearAttachments;
   reset(): Promise<void>;
