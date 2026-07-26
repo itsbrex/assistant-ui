@@ -38,7 +38,8 @@ export function useThreads(options: UseThreadsOptions): UseThreadsResult {
   const { cloud, includeArchived = false, enabled = true } = options;
 
   const [threads, setThreads] = useState<CloudThread[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(enabled);
+  const [previousEnabled, setPreviousEnabled] = useState(enabled);
   const [error, setError] = useState<Error | null>(null);
   const [selection, setSelection] = useState(() => ({
     scope: { cloud },
@@ -63,6 +64,11 @@ export function useThreads(options: UseThreadsOptions): UseThreadsResult {
     () => scope.cloud === cloud && activeScopeRef.current === scope,
     [cloud, scope],
   );
+
+  if (enabled !== previousEnabled) {
+    setPreviousEnabled(enabled);
+    if (enabled) setIsLoading(true);
+  }
 
   const mountedRef = useRef(true);
   const refreshRequestRef = useRef(0);
