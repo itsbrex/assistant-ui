@@ -249,10 +249,28 @@ const useThreadMessagesFlatListAutoScroll = ({
 
   const handleLayout = useCallback(
     (event: LayoutChangeEvent) => {
-      metricsRef.current.viewportHeight = event.nativeEvent.layout.height;
+      const wasAtBottom = isAtBottomRef.current;
+      const previousViewportHeight = metricsRef.current.viewportHeight;
+      const viewportHeight = event.nativeEvent.layout.height;
+      metricsRef.current.viewportHeight = viewportHeight;
       updateIsAtBottom();
+      if (!wasAtBottom) return;
+      // Layout changes are never user gestures, so they must not unpin. Past
+      // the first measurement, a viewport change while pinned re-commands the
+      // bottom position, since no content-size event follows a bare keyboard
+      // open or close.
+      if (
+        autoScroll &&
+        previousViewportHeight !== 0 &&
+        viewportHeight !== previousViewportHeight
+      ) {
+        const pending = pendingScrollToBottomRef.current;
+        scrollToBottom(pending ? pending.animated : false);
+      } else {
+        isAtBottomRef.current = true;
+      }
     },
-    [updateIsAtBottom],
+    [autoScroll, scrollToBottom, updateIsAtBottom],
   );
 
   const handleScroll = useCallback(
