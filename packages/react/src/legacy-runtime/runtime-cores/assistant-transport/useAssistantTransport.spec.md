@@ -49,6 +49,11 @@ setInTransitCommands(commands);
         setInTransitCommands(EMPTY_ARRAY);
         setSnapshot(snapshot);
       }
+
+      // A run that completes successfully confirms delivery even when no
+      // state-changing chunk was observed — clear in-transit commands here
+      // as well.
+      setInTransitCommands(EMPTY_ARRAY);
     } catch (error) {
       // Do not restore commands. Surface error to onError for state update.
       callbacks.onError?.({
