@@ -1183,31 +1183,54 @@ function toolkitEntryNames(
   return [];
 }
 
+function toolkitEntrySourceLabel(entry: Entry): string {
+  if (t.isSpreadElement(entry)) {
+    if (t.isIdentifier(entry.argument)) return `...${entry.argument.name}`;
+    if (unwrapToCall(entry.argument, MCP_TOOLKIT_WRAPPER)) {
+      return `...${MCP_TOOLKIT_WRAPPER}(...)`;
+    }
+    return "...";
+  }
+
+  if (t.isObjectProperty(entry) || t.isObjectMethod(entry)) {
+    const line = entry.loc?.start.line;
+    return line === undefined
+      ? "inline property"
+      : `inline property (line ${line})`;
+  }
+
+  return "inline property";
+}
+
 function warnDuplicateToolkitNames(
   object: t.ObjectExpression,
   toolkitSpreadNames: ToolkitSpreadNames,
   filename: string | undefined,
 ): void {
-  const names = collectToolkitObjectNames(object, toolkitSpreadNames);
-  if (!names) return;
-
-  const seen = new Set<string>();
-  const warned = new Set<string>();
-  for (const name of names) {
-    if (seen.has(name)) {
-      if (!warned.has(name)) {
-        console.warn(
-          new GenerativeCompileError(
-            `Duplicate tool name "${name}" while composing toolkits. ` +
-              "JavaScript object spread keeps the last definition.",
-            filename,
-          ).message,
-        );
-        warned.add(name);
-      }
-      continue;
+  const sourcesByToolName = new Map<string, string[]>();
+  for (const entry of object.properties) {
+    const entryNames = toolkitEntryNames(entry, toolkitSpreadNames);
+    if (!entryNames) continue;
+    const source = toolkitEntrySourceLabel(entry);
+    for (const name of entryNames) {
+      const sources = sourcesByToolName.get(name);
+      if (sources) sources.push(source);
+      else sourcesByToolName.set(name, [source]);
     }
-    seen.add(name);
+  }
+
+  for (const [name, sources] of sourcesByToolName) {
+    const winner = sources.at(-1);
+    const overridden = sources.slice(0, -1);
+    if (winner === undefined || overridden.length === 0) continue;
+    console.warn(
+      new GenerativeCompileError(
+        `Duplicate tool name "${name}": ${winner} overrides ` +
+          `${overridden.join(", ")}. ` +
+          "JavaScript object spread keeps the last definition.",
+        filename,
+      ).message,
+    );
   }
 }
 
