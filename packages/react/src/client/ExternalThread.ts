@@ -964,7 +964,7 @@ attachTransformScopes(useExternalThread, (scopes, parent) => {
     scopes.thread = Derived({
       source: "threads",
       query: { type: "main" },
-      get: (aui) => aui.threads().thread("main"),
+      get: (aui) => aui.threads.thread("main"),
     });
   }
 
@@ -972,14 +972,14 @@ attachTransformScopes(useExternalThread, (scopes, parent) => {
     scopes.threadListItem = Derived({
       source: "threads",
       query: { type: "main" },
-      get: (aui) => aui.threads().item("main"),
+      get: (aui) => aui.threads.item("main"),
     });
   }
 
   scopes.composer ??= Derived({
     source: "thread",
     query: {},
-    get: (aui) => aui.thread().composer(),
+    get: (aui) => aui.thread.composer(),
   });
 
   if (!scopes.modelContext && parent.modelContext.source === null) {

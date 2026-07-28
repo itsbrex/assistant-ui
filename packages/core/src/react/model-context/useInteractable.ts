@@ -123,7 +123,7 @@ const useInteractable = <TSchema extends Unstable_InteractableStateSchema>(
   const initialStateRef = useRef(config.initialState);
   initialStateRef.current = config.initialState;
 
-  const interactables = useAuiState(() => aui.unstable_interactables());
+  const interactables = useAuiState(() => aui.unstable_interactables);
 
   useEffect(() => {
     return interactables.register({

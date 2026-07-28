@@ -19,7 +19,7 @@ export function useAttachmentRuntime(options?: {
   const aui = useAui();
   const runtime = useAuiState(() =>
     aui.attachment.source
-      ? (aui.attachment().__internal_getRuntime?.() ?? null)
+      ? (aui.attachment.__internal_getRuntime?.() ?? null)
       : null,
   );
   if (!runtime && !options?.optional) {

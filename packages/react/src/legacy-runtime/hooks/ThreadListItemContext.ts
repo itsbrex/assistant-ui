@@ -19,7 +19,7 @@ export function useThreadListItemRuntime(options?: {
   const aui = useAui();
   const runtime = useAuiState(() =>
     aui.threadListItem.source
-      ? (aui.threadListItem().__internal_getRuntime?.() ?? null)
+      ? (aui.threadListItem.__internal_getRuntime?.() ?? null)
       : null,
   );
   if (!runtime && !options?.optional) {

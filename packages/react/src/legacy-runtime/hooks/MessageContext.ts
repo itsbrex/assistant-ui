@@ -65,9 +65,7 @@ export function useMessageRuntime(options?: {
 }) {
   const aui = useAui();
   const runtime = useAuiState(() =>
-    aui.message.source
-      ? (aui.message().__internal_getRuntime?.() ?? null)
-      : null,
+    aui.message.source ? (aui.message.__internal_getRuntime?.() ?? null) : null,
   );
   if (!runtime && !options?.optional) {
     throw new Error("MessageRuntime is not available");

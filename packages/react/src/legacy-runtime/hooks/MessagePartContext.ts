@@ -18,7 +18,7 @@ export function useMessagePartRuntime(options?: {
 }) {
   const aui = useAui();
   const runtime = useAuiState(() =>
-    aui.part.source ? (aui.part().__internal_getRuntime?.() ?? null) : null,
+    aui.part.source ? (aui.part.__internal_getRuntime?.() ?? null) : null,
   );
   if (!runtime && !options?.optional) {
     throw new Error("MessagePartRuntime is not available");

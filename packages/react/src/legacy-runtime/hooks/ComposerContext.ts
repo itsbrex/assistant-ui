@@ -77,7 +77,7 @@ export function useComposerRuntime(options?: {
   const aui = useAui();
   const runtime = useAuiState(() =>
     aui.composer.source
-      ? (aui.composer().__internal_getRuntime?.() ?? null)
+      ? (aui.composer.__internal_getRuntime?.() ?? null)
       : null,
   );
   if (!runtime && !options?.optional) {

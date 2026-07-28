@@ -41,6 +41,7 @@ import {
   useBuildingClient,
 } from "./utils/tap-assistant-context";
 import { ClientResource } from "./useClientResource";
+import { createClientAccessor, getBoundClient } from "./utils/client-accessor";
 import { getClientIndex } from "./utils/tap-client-stack-context";
 import {
   PROXIED_ASSISTANT_STATE_SYMBOL,
@@ -105,22 +106,8 @@ const createAccessor = <K extends ClientNames>(
   name: K,
   meta: ScopeMeta,
   read: () => ClientMethods,
-): AssistantClientAccessor<K> => {
-  const clientFunction = () => read();
-  Object.defineProperties(clientFunction, {
-    source: {
-      value: meta.source,
-    },
-    query: {
-      value: meta.query,
-    },
-    name: {
-      value: name,
-      configurable: true,
-    },
-  });
-  return clientFunction as AssistantClientAccessor<K>;
-};
+): AssistantClientAccessor<K> =>
+  createClientAccessor<K>({ name, ...meta }, read);
 
 type ClientFields = {
   subscribe: AssistantClient["subscribe"];
@@ -181,7 +168,7 @@ const useClientFields = ({
             return;
           }
 
-          const scopeClient = this[scope as ClientNames]();
+          const scopeClient = getBoundClient(this[scope as ClientNames]);
           const index = getClientIndex(scopeClient);
           if (scopeClient === clientStack[index]) {
             callback(payload);
@@ -392,7 +379,7 @@ export namespace useAui {
  *
  * Read the client supplied by the nearest {@link AuiProvider} or
  * {@link AssistantRuntimeProvider}, then access a scope on it —
- * `aui.thread()`, `aui.composer()`, `aui.message()`, and so on. Pair
+ * `aui.thread`, `aui.composer`, `aui.message`, and so on. Pair
  * with {@link useAuiState} to read reactive state and {@link useAuiEvent}
  * to subscribe to events. The returned client also exposes lower-level
  * methods such as `aui.on(...)` and `aui.subscribe(...)`; prefer
@@ -405,8 +392,8 @@ export namespace useAui {
  * ```tsx
  * const aui = useAui();
  *
- * const onSend = () => aui.composer().send();
- * const onCancel = () => aui.thread().cancelRun();
+ * const onSend = () => aui.composer.send();
+ * const onCancel = () => aui.thread.cancelRun();
  * ```
  *
  * @example
@@ -416,7 +403,7 @@ export namespace useAui {
  * const isRunning = useAuiState((s) => s.thread.isRunning);
  *
  * return (
- *   <button disabled={isRunning} onClick={() => aui.composer().send()}>
+ *   <button disabled={isRunning} onClick={() => aui.composer.send()}>
  *     Send
  *   </button>
  * );
@@ -443,7 +430,7 @@ export function useAui(): AssistantClient;
  *   message: Derived({
  *     source: "thread",
  *     query: { index: 0 },
- *     get: (aui) => aui.thread().message({ index: 0 }),
+ *     get: (aui) => aui.thread.message({ index: 0 }),
  *   }),
  * });
  *
