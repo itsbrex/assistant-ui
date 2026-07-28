@@ -611,11 +611,12 @@ const useLangGraphRuntimeImpl = (options: UseLangGraphRuntimeOptions) => {
       loadRef.current = load;
     });
 
+    const threadListItem = aui.threadListItem;
     useEffect(() => {
       const load = loadRef.current;
       if (!load) return;
 
-      const externalId = aui.threadListItem().getState().externalId;
+      const externalId = threadListItem().getState().externalId;
       if (externalId == null) return;
 
       // drop stale callbacks and abort the pending load on thread switch/unmount
@@ -646,7 +647,7 @@ const useLangGraphRuntimeImpl = (options: UseLangGraphRuntimeOptions) => {
         controller.abort();
         setIsLoadingThread(false);
       };
-    }, [aui, setMessages, setUIMessages, setInterrupt, setValues]);
+    }, [threadListItem, setMessages, setUIMessages, setInterrupt, setValues]);
   }
 
   return runtime;
