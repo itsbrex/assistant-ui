@@ -21,14 +21,19 @@ const coerceValue = (
   return { value: number, invalid: false };
 };
 
-const isBooleanSchema = (schema: unknown) =>
+const isBooleanSchema = (schema: unknown): schema is Record<string, unknown> =>
   isRecord(schema) && schema.type === "boolean";
 
 const getDraftValue = (draft: Record<string, unknown>, name: string) =>
   Object.hasOwn(draft, name) ? draft[name] : undefined;
 
-const isAbsentBooleanDraftValue = (value: unknown) =>
-  value === undefined || value === "" || typeof value !== "boolean";
+const isAbsentDraftValue = (value: unknown) =>
+  value === undefined || value === null || value === "";
+
+const isInvalidBooleanDraftValue = (schema: unknown, value: unknown) =>
+  isBooleanSchema(schema) &&
+  !isAbsentDraftValue(value) &&
+  typeof value !== "boolean";
 
 export const prepareElicitationContent = (
   requestedSchema: unknown,
@@ -51,18 +56,35 @@ export const prepareElicitationContent = (
 
   const preparedDraft = Object.entries(draft).flatMap(([name, value]) => {
     const schema = properties[name];
-    if (isBooleanSchema(schema) && isAbsentBooleanDraftValue(value)) return [];
+    if (value === undefined || value === null) return [];
+    if (
+      isBooleanSchema(schema) &&
+      (isAbsentDraftValue(value) || isInvalidBooleanDraftValue(schema, value))
+    ) {
+      return [];
+    }
 
     const coerced = coerceValue(schema, value);
     return coerced.invalid ? [] : [[name, coerced.value]];
   });
-  const invalid = Object.entries(draft).flatMap(([name, value]) =>
-    coerceValue(properties[name], value).invalid ? [name] : [],
-  );
+  const invalid = Object.entries(draft).flatMap(([name, value]) => {
+    const schema = properties[name];
+    return isInvalidBooleanDraftValue(schema, value) ||
+      coerceValue(schema, value).invalid
+      ? [name]
+      : [];
+  });
   const requiredBooleans = required.flatMap((name) =>
     isBooleanSchema(properties[name]) &&
-    isAbsentBooleanDraftValue(getDraftValue(draft, name))
-      ? [[name, false]]
+    isAbsentDraftValue(getDraftValue(draft, name))
+      ? [
+          [
+            name,
+            typeof properties[name].default === "boolean"
+              ? properties[name].default
+              : false,
+          ],
+        ]
       : [],
   );
 
@@ -71,8 +93,7 @@ export const prepareElicitationContent = (
     missingRequired: required.filter(
       (name) =>
         !isBooleanSchema(properties[name]) &&
-        (getDraftValue(draft, name) === undefined ||
-          getDraftValue(draft, name) === ""),
+        isAbsentDraftValue(getDraftValue(draft, name)),
     ),
     invalid,
   };
