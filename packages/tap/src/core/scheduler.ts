@@ -7,7 +7,7 @@ type GlobalFlushState = {
   isScheduled: boolean;
 };
 
-const MAX_FLUSH_LIMIT = 50;
+const MAX_UPDATE_DEPTH = 50;
 let flushState: GlobalFlushState = {
   schedulers: new Set([]),
   isScheduled: false,
@@ -48,19 +48,27 @@ const scheduleFlush = () => {
 const flushScheduled = () => {
   try {
     const errors = [];
-    let flushDepth = 0;
+    const runs = new Map<UpdateScheduler, number>();
+    let depthExceeded = false;
 
     for (const scheduler of flushState.schedulers) {
       flushState.schedulers.delete(scheduler);
       if (!scheduler.isDirty) continue;
 
-      flushDepth++;
+      const count = (runs.get(scheduler) ?? 0) + 1;
+      runs.set(scheduler, count);
 
-      if (flushDepth > MAX_FLUSH_LIMIT) {
-        throw new Error(
-          `Maximum update depth exceeded. This can happen when a resource ` +
-            `repeatedly calls setState inside useEffect.`,
-        );
+      if (count > MAX_UPDATE_DEPTH) {
+        if (!depthExceeded) {
+          depthExceeded = true;
+          errors.push(
+            new Error(
+              `Maximum update depth exceeded. This can happen when a resource ` +
+                `repeatedly calls setState inside useEffect.`,
+            ),
+          );
+        }
+        continue;
       }
 
       try {
