@@ -101,7 +101,10 @@ class ClientProxyHandler
     if (introspection !== false) return introspection;
     const value = this.outputRef.current[prop];
     if (typeof value === "function") {
-      if (this.cachedReceiver !== receiver) {
+      // receiver-less reads (getOwnPropertyDescriptor) get the raw method so
+      // the bound-fn cache stays keyed on the real receiver
+      if (receiver === undefined) return value;
+      if (!this.boundFns || this.cachedReceiver !== receiver) {
         this.boundFns = new Map();
         this.cachedReceiver = receiver;
       }
