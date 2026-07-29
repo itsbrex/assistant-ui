@@ -1,16 +1,18 @@
-name: Deploy Ink Example
+name: Deploy Examples
 
 on:
   push:
     branches:
       - main
     paths:
+      - examples/with-expo/**
       - examples/with-react-ink-web/**
+      - packages/react-native/**
       - packages/react-ink/**
       - packages/react-ink-markdown/**
       - packages/react-ai-sdk/**
       - packages/core/**
-      - .github/workflows/ink.yaml
+      - .github/workflows/deploy-examples.yaml
 
 permissions:
   contents: read
@@ -21,12 +23,21 @@ concurrency:
 
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_INK_PROJECT_ID }}
 
 jobs:
   deploy-production:
-    name: Deploy Production
+    name: Deploy Production (${{ matrix.example }})
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - example: with-expo
+            chat-endpoint-url: https://www.assistant-ui.com/api/chat
+          - example: with-react-ink-web
+    env:
+      VERCEL_PROJECT_ID: ${{ matrix.example == 'with-expo' && secrets.VERCEL_EXPO_PROJECT_ID || matrix.example == 'with-react-ink-web' && secrets.VERCEL_INK_PROJECT_ID || '' }}
+      EXPO_PUBLIC_CHAT_ENDPOINT_URL: ${{ matrix.chat-endpoint-url }}
     steps:
       - name: Checkout code repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # ratchet:actions/checkout@v7
@@ -46,10 +57,10 @@ jobs:
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # ratchet:actions/cache@v5
         with:
           path: .turbo
-          key: ${{ runner.os }}-turbo-${{ github.ref }}-${{ github.sha }}
+          key: ${{ runner.os }}-turbo-${{ matrix.example }}-${{ github.ref }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-turbo-${{ github.ref }}-
-            ${{ runner.os }}-turbo-
+            ${{ runner.os }}-turbo-${{ matrix.example }}-${{ github.ref }}-
+            ${{ runner.os }}-turbo-${{ matrix.example }}-
 
       - name: Install Vercel CLI
         run: npm install --global vercel@latest
@@ -58,13 +69,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Pull Vercel Environment Information
-        working-directory: examples/with-react-ink-web
+        working-directory: examples/${{ matrix.example }}
         run: vercel pull --yes --prod --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Build Project Artifacts
-        working-directory: examples/with-react-ink-web
+        working-directory: examples/${{ matrix.example }}
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Deploy Project Artifacts to Vercel
-        working-directory: examples/with-react-ink-web
+        working-directory: examples/${{ matrix.example }}
         run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
