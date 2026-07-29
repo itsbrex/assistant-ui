@@ -564,14 +564,118 @@ describe("McpServerResource elicitation", () => {
       const [elicitation] = root.getValue().getState().pendingElicitations;
       const content = { color: "blue" };
 
-      root
-        .getValue()
-        .answerElicitation(elicitation!.id, { action: "accept", content });
+      expect(
+        root
+          .getValue()
+          .answerElicitation(elicitation!.id, { action: "accept", content }),
+      ).toBeUndefined();
 
       await expect(response).resolves.toEqual({
         action: "accept",
         content,
       });
+      await waitForResourceUpdate(
+        () => root.getValue().getState().pendingElicitations.length === 0,
+      );
+    } finally {
+      root.unmount();
+    }
+  });
+
+  it("keeps invalid accepted content pending until a valid response arrives", async () => {
+    const root = mount();
+
+    try {
+      await root.getValue().connect();
+      const response = requestElicitation(mocks.clients[0], "Choose a color", {
+        type: "object",
+        required: ["color"],
+        properties: {
+          color: { type: "string" },
+        },
+      });
+      let resolved = false;
+      void response.then(() => {
+        resolved = true;
+      });
+      await waitForResourceUpdate(
+        () => root.getValue().getState().pendingElicitations.length === 1,
+      );
+      const [elicitation] = root.getValue().getState().pendingElicitations;
+
+      expect(
+        root.getValue().answerElicitation(elicitation!.id, {
+          action: "accept",
+          content: { color: 1 },
+        }),
+      ).toEqual([{ property: "color", message: "Expected a string." }]);
+
+      await waitForResourceUpdate(
+        () =>
+          root.getValue().getState().pendingElicitations[0]?.error?.message ===
+          "Invalid elicitation content: color.",
+      );
+      expect(root.getValue().getState().pendingElicitations).toEqual([
+        expect.objectContaining({
+          id: elicitation!.id,
+          error: {
+            message: "Invalid elicitation content: color.",
+            properties: ["color"],
+          },
+        }),
+      ]);
+      await tick();
+      expect(resolved).toBe(false);
+
+      expect(
+        root.getValue().answerElicitation(elicitation!.id, {
+          action: "accept",
+          content: { color: "blue" },
+        }),
+      ).toBeUndefined();
+
+      await expect(response).resolves.toEqual({
+        action: "accept",
+        content: { color: "blue" },
+      });
+      await waitForResourceUpdate(
+        () => root.getValue().getState().pendingElicitations.length === 0,
+      );
+    } finally {
+      root.unmount();
+    }
+  });
+
+  it("declines an elicitation that carries a validation error", async () => {
+    const root = mount();
+
+    try {
+      await root.getValue().connect();
+      const response = requestElicitation(mocks.clients[0], "Choose a color", {
+        type: "object",
+        required: ["color"],
+        properties: {
+          color: { type: "string" },
+        },
+      });
+      await waitForResourceUpdate(
+        () => root.getValue().getState().pendingElicitations.length === 1,
+      );
+      const [elicitation] = root.getValue().getState().pendingElicitations;
+
+      root.getValue().answerElicitation(elicitation!.id, {
+        action: "accept",
+        content: {},
+      });
+      await waitForResourceUpdate(
+        () =>
+          root.getValue().getState().pendingElicitations[0]?.error !==
+          undefined,
+      );
+
+      root.getValue().answerElicitation(elicitation!.id, { action: "decline" });
+
+      await expect(response).resolves.toEqual({ action: "decline" });
       await waitForResourceUpdate(
         () => root.getValue().getState().pendingElicitations.length === 0,
       );
@@ -638,18 +742,18 @@ describe("McpServerResource elicitation", () => {
     const root = mount();
 
     try {
-      expect(() =>
+      expect(
         root
           .getValue()
           .answerElicitation("missing-elicitation", { action: "cancel" }),
-      ).not.toThrow();
+      ).toBeUndefined();
       expect(root.getValue().getState().pendingElicitations).toEqual([]);
     } finally {
       root.unmount();
     }
   });
 
-  it("rejects accepted elicitation content that is not an object", async () => {
+  it("returns validation errors for accepted elicitation content that is not an object", async () => {
     const root = mount();
 
     try {
@@ -663,15 +767,28 @@ describe("McpServerResource elicitation", () => {
       );
       const [elicitation] = root.getValue().getState().pendingElicitations;
 
-      expect(() =>
+      expect(
         root.getValue().answerElicitation(elicitation!.id, {
           action: "accept",
           content: null as never,
         }),
-      ).toThrow(
-        `MCP elicitation "${elicitation!.id}" response content must be an object`,
+      ).toEqual([
+        { property: "content", message: "Response content must be an object." },
+      ]);
+      await waitForResourceUpdate(
+        () =>
+          root.getValue().getState().pendingElicitations[0]?.error?.message ===
+          "Invalid elicitation content: content.",
       );
-      expect(root.getValue().getState().pendingElicitations).toHaveLength(1);
+      expect(root.getValue().getState().pendingElicitations).toEqual([
+        expect.objectContaining({
+          id: elicitation!.id,
+          error: {
+            message: "Invalid elicitation content: content.",
+            properties: ["content"],
+          },
+        }),
+      ]);
 
       await root.getValue().disconnect();
       await expect(response).resolves.toEqual({ action: "cancel" });

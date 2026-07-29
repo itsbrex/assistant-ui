@@ -13,6 +13,7 @@ import {
 import { createOAuthProvider } from "../auth/createOAuthProvider";
 import { buildHeaders } from "../auth/buildHeaders";
 import { assertValidServerId } from "../utils/serverId";
+import { validateElicitationContent } from "./validateElicitationContent";
 import type { MCPStorage } from "./storage/types";
 import type {
   MCPAuthConfig,
@@ -67,6 +68,7 @@ const useMcpServerResource = (
         resolve: (result: ElicitResult) => void;
         signal: AbortSignal;
         onAbort: () => void;
+        requestedSchema: unknown;
       }
     >(),
   );
@@ -108,6 +110,19 @@ const useMcpServerResource = (
       current.filter((elicitation) => elicitation.id !== id),
     );
     entry.resolve(result);
+    return true;
+  };
+
+  const setPendingElicitationError = (
+    id: string,
+    error: NonNullable<MCPElicitation["error"]>,
+  ) => {
+    if (!elicitationResolversRef.current.has(id)) return false;
+    setPendingElicitations((current) =>
+      current.map((elicitation) =>
+        elicitation.id === id ? { ...elicitation, error } : elicitation,
+      ),
+    );
     return true;
   };
 
@@ -302,6 +317,7 @@ const useMcpServerResource = (
                 resolve,
                 signal: context.signal,
                 onAbort,
+                requestedSchema,
               });
             });
             setPendingElicitations((current) => [
@@ -551,26 +567,56 @@ const useMcpServerResource = (
       return await client.readResource({ uri });
     },
     completeAuth: doCompleteAuth,
-    answerElicitation: (id: string, response: MCPElicitationResponse): void => {
-      if (
-        response.action === "accept" &&
-        (typeof response.content !== "object" ||
+    answerElicitation: (
+      id: string,
+      response: MCPElicitationResponse,
+    ): readonly { property: string; message: string }[] | undefined => {
+      if (response.action === "accept") {
+        const entry = elicitationResolversRef.current.get(id);
+        if (!entry) return;
+
+        if (
+          typeof response.content !== "object" ||
           response.content === null ||
-          Array.isArray(response.content))
-      ) {
-        throw new Error(
-          `MCP elicitation "${id}" response content must be an object`,
+          Array.isArray(response.content)
+        ) {
+          const errors = [
+            {
+              property: "content",
+              message: "Response content must be an object.",
+            },
+          ];
+          setPendingElicitationError(id, {
+            message: "Invalid elicitation content: content.",
+            properties: ["content"],
+          });
+          return errors;
+        }
+
+        const errors = validateElicitationContent(
+          entry.requestedSchema,
+          response.content,
         );
+        if (errors.length > 0) {
+          const properties = [
+            ...new Set(errors.map((error) => error.property)),
+          ];
+          setPendingElicitationError(id, {
+            message: `Invalid elicitation content: ${properties.join(", ")}.`,
+            properties,
+          });
+          return errors;
+        }
+
+        const result: ElicitResult = {
+          action: "accept",
+          content: response.content as ElicitResult["content"],
+        };
+        resolvePendingElicitation(id, result);
+        return;
       }
 
-      const result: ElicitResult =
-        response.action === "accept"
-          ? {
-              action: "accept",
-              content: response.content as ElicitResult["content"],
-            }
-          : { action: response.action };
-      resolvePendingElicitation(id, result);
+      resolvePendingElicitation(id, { action: response.action });
     },
   };
 };

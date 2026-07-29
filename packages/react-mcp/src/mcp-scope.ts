@@ -25,7 +25,7 @@ export type MCPConnector = {
   auth: MCPAuthConfig;
   connectionTimeout?: number | undefined;
   readonly cache?: MCPResponseCacheConfig | undefined;
-  readonly elicitation?: boolean;
+  readonly elicitation?: boolean | undefined;
 };
 
 export type MCPCustomServerRecord = {
@@ -35,7 +35,7 @@ export type MCPCustomServerRecord = {
   auth: MCPAuthConfig;
   connectionTimeout?: number | undefined;
   readonly cache?: MCPResponseCacheConfig | undefined;
-  readonly elicitation?: boolean;
+  readonly elicitation?: boolean | undefined;
   createdAt: number;
 };
 
@@ -59,6 +59,12 @@ export type MCPElicitation = {
   readonly id: string;
   readonly message: string;
   readonly requestedSchema: unknown;
+  readonly error?:
+    | {
+        readonly message: string;
+        readonly properties?: readonly string[] | undefined;
+      }
+    | undefined;
 };
 
 export type MCPElicitationResponse =
@@ -98,7 +104,10 @@ export type MCPServerMethods = {
   readResource: (uri: string) => Promise<unknown>;
   /** OAuth only: pass full callback URL (e.g. window.location.href) */
   completeAuth: (callbackUrl: string) => Promise<void>;
-  answerElicitation(id: string, response: MCPElicitationResponse): void;
+  answerElicitation(
+    id: string,
+    response: MCPElicitationResponse,
+  ): readonly { property: string; message: string }[] | undefined;
 };
 
 export type MCPServerQuery =
@@ -120,7 +129,7 @@ export type MCPManagerMethods = {
     auth: MCPAuthConfig;
     connectionTimeout?: number | undefined;
     readonly cache?: MCPResponseCacheConfig | undefined;
-    readonly elicitation?: boolean;
+    readonly elicitation?: boolean | undefined;
   }) => Promise<string>;
   removeServer: (id: string) => Promise<void>;
 };

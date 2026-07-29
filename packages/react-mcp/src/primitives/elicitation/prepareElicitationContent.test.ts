@@ -62,6 +62,18 @@ describe("prepareElicitationContent", () => {
     ).toEqual(["count"]);
   });
 
+  it("flags enum values outside the allowed values for the Accept gate", () => {
+    expect(
+      prepareElicitationContent(
+        {
+          type: "object",
+          properties: { color: { enum: ["red", "blue"] } },
+        },
+        { color: "green" },
+      ),
+    ).toEqual({ content: {}, missingRequired: [], invalid: ["color"] });
+  });
+
   it("does not read inherited draft values", () => {
     expect(
       prepareElicitationContent(
@@ -166,6 +178,47 @@ describe("prepareElicitationContent", () => {
     });
   });
 
+  it("submits an empty optional string draft", () => {
+    expect(
+      prepareElicitationContent(
+        {
+          type: "object",
+          properties: { query: { type: "string" } },
+        },
+        { query: "" },
+      ),
+    ).toEqual({ content: { query: "" }, missingRequired: [], invalid: [] });
+  });
+
+  it("keeps an empty required string draft in content while reporting it missing", () => {
+    expect(
+      prepareElicitationContent(
+        {
+          type: "object",
+          required: ["query"],
+          properties: { query: { type: "string" } },
+        },
+        { query: "" },
+      ),
+    ).toEqual({
+      content: { query: "" },
+      missingRequired: ["query"],
+      invalid: [],
+    });
+  });
+
+  it("treats an empty optional boolean draft as absent", () => {
+    expect(
+      prepareElicitationContent(
+        {
+          type: "object",
+          properties: { enabled: { type: "boolean" } },
+        },
+        { enabled: "" },
+      ),
+    ).toEqual({ content: {}, missingRequired: [], invalid: [] });
+  });
+
   it("treats undefined and empty optional boolean drafts as absent", () => {
     expect(
       prepareElicitationContent(
@@ -222,6 +275,26 @@ describe("prepareElicitationContent", () => {
     ).toEqual({
       content: { enabled: false },
       missingRequired: ["query"],
+      invalid: [],
+    });
+  });
+
+  it("treats a cleared numeric draft as absent instead of invalid", () => {
+    expect(
+      prepareElicitationContent(
+        {
+          type: "object",
+          properties: {
+            limit: { type: "number" },
+            count: { type: "integer" },
+          },
+          required: ["limit"],
+        },
+        { limit: "", count: "" },
+      ),
+    ).toEqual({
+      content: {},
+      missingRequired: ["limit"],
       invalid: [],
     });
   });

@@ -81,7 +81,7 @@ type MCPConnector = {
   auth: MCPAuthConfig;
   connectionTimeout?: number | undefined;
   readonly cache?: MCPResponseCacheConfig | undefined;
-  readonly elicitation?: boolean;
+  readonly elicitation?: boolean | undefined;
 };
 
 type MCPCustomServerRecord = {
@@ -91,7 +91,7 @@ type MCPCustomServerRecord = {
   auth: MCPAuthConfig;
   connectionTimeout?: number | undefined;
   readonly cache?: MCPResponseCacheConfig | undefined;
-  readonly elicitation?: boolean;
+  readonly elicitation?: boolean | undefined;
   createdAt: number;
 };
 
@@ -99,6 +99,10 @@ type MCPElicitation = {
   readonly id: string;
   readonly message: string;
   readonly requestedSchema: unknown;
+  readonly error?: {
+    readonly message: string;
+    readonly properties?: readonly string[] | undefined;
+  } | undefined;
 };
 
 type MCPElicitationResponse = {
@@ -125,7 +129,7 @@ type MCPManagerMethods = {
     auth: MCPAuthConfig;
     connectionTimeout?: number | undefined;
     readonly cache?: MCPResponseCacheConfig | undefined;
-    readonly elicitation?: boolean;
+    readonly elicitation?: boolean | undefined;
   }) => Promise<string>;
   removeServer: (id: string) => Promise<void>;
 };
@@ -161,7 +165,10 @@ type MCPServerMethods = {
   }) => Promise<unknown>;
   readResource: (uri: string) => Promise<unknown>;
   completeAuth: (callbackUrl: string) => Promise<void>;
-  answerElicitation(id: string, response: MCPElicitationResponse): void;
+  answerElicitation(id: string, response: MCPElicitationResponse): readonly {
+    property: string;
+    message: string;
+  }[] | undefined;
 };
 
 type MCPServerQuery = {
@@ -316,6 +323,15 @@ declare namespace McpElicitationPrimitiveDecline {
 declare const McpElicitationPrimitiveDecline: import("react").ForwardRefExoticComponent<Omit<import("react").ClassAttributes<HTMLButtonElement> & import("react").ButtonHTMLAttributes<HTMLButtonElement> & {
   asChild?: boolean;
 }, "ref"> & import("react").RefAttributes<HTMLButtonElement>>;
+
+declare namespace McpElicitationPrimitiveError {
+  type Element = ComponentRef<typeof Primitive.div>;
+  type Props = ComponentPropsWithoutRef<typeof Primitive.div>;
+}
+
+declare const McpElicitationPrimitiveError: import("react").ForwardRefExoticComponent<Omit<import("react").ClassAttributes<HTMLDivElement> & import("react").HTMLAttributes<HTMLDivElement> & {
+  asChild?: boolean;
+}, "ref"> & import("react").RefAttributes<HTMLDivElement>>;
 
 declare namespace McpElicitationPrimitiveFields {
   type Props = {
@@ -591,7 +607,7 @@ declare namespace addForm_d_exports {
 declare function defineConnector(connector: MCPConnector): MCPConnector;
 
 declare namespace elicitation_d_exports {
-  export { McpElicitationPrimitiveAccept as Accept, McpElicitationPrimitiveCancel as Cancel, McpElicitationPrimitiveDecline as Decline, McpElicitationPrimitiveFields as Fields, McpElicitationPrimitiveItems as Items, McpElicitationPrimitiveMessage as Message, McpElicitationPrimitiveRoot as Root, useMcpElicitation, useMcpElicitationField };
+  export { McpElicitationPrimitiveAccept as Accept, McpElicitationPrimitiveCancel as Cancel, McpElicitationPrimitiveDecline as Decline, McpElicitationPrimitiveError as Error, McpElicitationPrimitiveFields as Fields, McpElicitationPrimitiveItems as Items, McpElicitationPrimitiveMessage as Message, McpElicitationPrimitiveRoot as Root, useMcpElicitation, useMcpElicitationField };
 }
 
 declare namespace entry_root_exports {
