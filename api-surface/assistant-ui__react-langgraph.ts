@@ -1119,6 +1119,13 @@ type MessageCommonProps = {
   readonly createdAt: Date;
 };
 
+type MessageContentAudio = {
+  type: "audio";
+  data: string;
+  mime_type: string;
+  source_type: "base64";
+};
+
 type MessageContentComputerCall = {
   type: "computer_call";
   call_id: string;
@@ -2184,7 +2191,7 @@ type UseLangGraphRuntimeOptions = ExternalStoreSharedOptions & {
 
 type UserMessageContent = string | UserMessageContentComplex[];
 
-type UserMessageContentComplex = MessageContentText | MessageContentImageUrl | MessageContentFile;
+type UserMessageContentComplex = MessageContentText | MessageContentImageUrl | MessageContentFile | MessageContentAudio;
 
 type VoiceSessionState = {
   readonly status: RealtimeVoiceAdapter.Status;
