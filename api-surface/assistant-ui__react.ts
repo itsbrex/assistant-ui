@@ -894,10 +894,16 @@ declare namespace AuiIf {
 
 declare const AuiIf: FC<AuiIf.Props>;
 
-declare const AuiProvider: (_param0: {
-  value: AssistantClient;
-  children: React.ReactNode;
-}) => React.ReactElement;
+declare const AuiProvider: {
+  (props: {
+    value: AssistantClient;
+    children: React.ReactNode;
+  }): React.ReactElement;
+  (props: {
+    value: null;
+    children: React.ReactNode;
+  }): React.ReactElement;
+};
 
 type AuiToolOverride<TArgs extends Record<string, unknown> = Record<string, unknown>, TResult = unknown> = Partial<Tool<TArgs, TResult>>;
 
@@ -1234,7 +1240,7 @@ declare class CloudFileAttachmentAdapter implements AttachmentAdapter {
   private cloud;
   constructor(cloud: AssistantCloud);
   private uploadedUrls;
-  add(_param1: {
+  add(_param0: {
     file: File;
   }): AsyncGenerator<PendingAttachment, void>;
   remove(attachment: Attachment): Promise<void>;
@@ -2825,7 +2831,7 @@ declare namespace MessagePrimitiveGroupedParts {
 }
 
 declare const MessagePrimitiveGroupedParts: {
-  <TKey extends `group-${string}`>(_param2: MessagePrimitiveGroupedParts.Props<TKey>): ReactNode;
+  <TKey extends `group-${string}`>(_param1: MessagePrimitiveGroupedParts.Props<TKey>): ReactNode;
   displayName: string;
 };
 
@@ -3002,7 +3008,7 @@ declare class MessageRepository {
   resetHead(messageId: string | null): void;
   clear(): void;
   export(): ExportedMessageRepository;
-  import(_param3: ExportedMessageRepository): void;
+  import(_param2: ExportedMessageRepository): void;
 }
 
 type MessageRole = ThreadMessage["role"];
@@ -3015,10 +3021,10 @@ type MessageRuntime = {
   reload(config?: ReloadConfig): void;
   speak(): void;
   stopSpeaking(): void;
-  submitFeedback(_param4: {
+  submitFeedback(_param3: {
     type: "positive" | "negative";
   }): void;
-  switchToBranch(_param5: {
+  switchToBranch(_param4: {
     position?: "previous" | "next" | undefined;
     branchId?: string | undefined;
   }): void;
@@ -3051,10 +3057,10 @@ declare class MessageRuntimeImpl implements MessageRuntime {
   reload(reloadConfig?: ReloadConfig): void;
   speak(): void;
   stopSpeaking(): void;
-  submitFeedback(_param6: {
+  submitFeedback(_param5: {
     type: "positive" | "negative";
   }): void;
-  switchToBranch(_param7: {
+  switchToBranch(_param6: {
     position?: "previous" | "next" | undefined;
     branchId?: string | undefined;
   }): void;
@@ -4998,7 +5004,7 @@ type ThreadViewportState = {
   readonly scrollToBottom: (config?: {
     behavior?: ScrollBehavior | undefined;
   }) => void;
-  readonly onScrollToBottom: (callback: (_param8: {
+  readonly onScrollToBottom: (callback: (_param7: {
     behavior: ScrollBehavior;
   }) => void) => Unsubscribe;
   readonly turnAnchor: "bottom" | "top";
@@ -5762,7 +5768,7 @@ declare namespace composer_d_exports {
 declare const convertExternalMessages: <T extends WeakKey>(messages: T[], callback: useExternalMessageConverter.Callback<T>, isRunning: boolean, metadata: useExternalMessageConverter.Metadata) => ThreadMessage[];
 
 declare const createMessageConverter: <T extends object>(callback: useExternalMessageConverter.Callback<T>) => {
-  useThreadMessages: (_param9: {
+  useThreadMessages: (_param8: {
     messages: T[];
     isRunning: boolean;
     joinStrategy?: JoinStrategy | undefined;
@@ -6002,7 +6008,7 @@ declare function unstable_useTriggerPopoverAriaProps(): Unstable_TriggerPopoverA
 
 declare const useActionBarEdit: () => (() => void) | null;
 
-declare const useActionBarExportMarkdown: (_param10?: {
+declare const useActionBarExportMarkdown: (_param9?: {
   filename?: string | undefined;
   onExport?: ((content: string) => void | Promise<void>) | undefined;
 }) => (() => Promise<void>) | null;
@@ -6011,7 +6017,7 @@ declare const useActionBarFeedbackNegative: () => () => void;
 
 declare const useActionBarFeedbackPositive: () => () => void;
 
-declare const useActionBarPrimitiveCopy: (_param11?: {
+declare const useActionBarPrimitiveCopy: (_param10?: {
   copiedDuration?: number | undefined;
 }) => (() => void) | null;
 
@@ -6025,7 +6031,7 @@ declare const useAssistantContext: (config: AssistantContextConfig) => void;
 
 declare const useAssistantDataUI: (dataUI: AssistantDataUIProps | null) => void;
 
-declare const useAssistantFrameHost: (_param12: UseAssistantFrameHostOptions) => void;
+declare const useAssistantFrameHost: (_param11: UseAssistantFrameHostOptions) => void;
 
 declare const useAssistantInstructions: (config: string | AssistantInstructionsConfig) => void;
 
@@ -6055,10 +6061,6 @@ declare function useAui(): AssistantClient;
 
 declare function useAui(clients: useAui.Props): AssistantClient;
 
-declare function useAui(clients: useAui.Props, config: {
-  parent: null | AssistantClient;
-}): AssistantClient;
-
 declare const useAuiEvent: <TEvent extends AssistantEventName>(selector: AssistantEventSelector<TEvent>, callback: AssistantEventCallback<TEvent>) => void;
 
 declare const useAuiState: <T>(selector: (state: AssistantState) => T) => T;
@@ -6073,9 +6075,9 @@ declare const useChainOfThoughtAccordionTrigger: () => () => void;
 
 declare const useCloudThreadListAdapter: (adapter: CloudThreadListAdapterOptions) => RemoteThreadListAdapter;
 
-declare function useCloudThreadListRuntime(_param13: CloudThreadListAdapter): AssistantRuntime;
+declare function useCloudThreadListRuntime(_param12: CloudThreadListAdapter): AssistantRuntime;
 
-declare const useComposerAddAttachment: (_param14?: {
+declare const useComposerAddAttachment: (_param13?: {
   multiple?: boolean | undefined;
 }) => (() => void) | null;
 
@@ -6111,7 +6113,7 @@ declare namespace useExternalMessageConverter {
   type Callback<T> = (message: T, metadata: Metadata) => Message | Message[];
 }
 
-declare const useExternalMessageConverter: <T extends WeakKey>(_param15: {
+declare const useExternalMessageConverter: <T extends WeakKey>(_param14: {
   callback: useExternalMessageConverter.Callback<T>;
   messages: T[];
   isRunning: boolean;
@@ -6136,7 +6138,7 @@ declare const useInteractableState: <TState>(id: string, fallback: TState) => [
   }
 ];
 
-declare const useLocalRuntime: (chatModel: ChatModelAdapter, _param16?: LocalRuntimeOptions) => AssistantRuntime;
+declare const useLocalRuntime: (chatModel: ChatModelAdapter, _param15?: LocalRuntimeOptions) => AssistantRuntime;
 
 declare const useMessagePartData: <T = any>(name?: string) => DataMessagePart<T> | null;
 
@@ -6281,7 +6283,7 @@ declare const useSmoothStatus: {
   }> | null;
 };
 
-declare const useSuggestionTrigger: (_param17: {
+declare const useSuggestionTrigger: (_param16: {
   send?: boolean | undefined;
   clearComposer?: boolean | undefined;
 }) => (() => void) | null;
@@ -6302,9 +6304,9 @@ declare namespace useThreadScrollToBottom {
   };
 }
 
-declare const useThreadScrollToBottom: (_param18?: useThreadScrollToBottom.Options) => (() => void) | null;
+declare const useThreadScrollToBottom: (_param17?: useThreadScrollToBottom.Options) => (() => void) | null;
 
-declare const useThreadSuggestion: (_param19: {
+declare const useThreadSuggestion: (_param18: {
   prompt: string;
   send?: boolean | undefined;
   clearComposer?: boolean | undefined;
@@ -6338,7 +6340,7 @@ declare namespace useThreadViewportAutoScroll {
   };
 }
 
-declare const useThreadViewportAutoScroll: <TElement extends HTMLElement>(_param20: useThreadViewportAutoScroll.Options) => RefCallback<TElement>;
+declare const useThreadViewportAutoScroll: <TElement extends HTMLElement>(_param19: useThreadViewportAutoScroll.Options) => RefCallback<TElement>;
 
 declare const useToolArgsStatus: <TArgs extends Record<string, unknown> = Record<string, unknown>>() => ToolArgsStatus<TArgs>;
 

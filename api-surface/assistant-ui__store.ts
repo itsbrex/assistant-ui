@@ -51,10 +51,16 @@ declare namespace AuiIf {
 
 declare const AuiIf: FC<AuiIf.Props>;
 
-declare const AuiProvider: (_param0: {
-  value: AssistantClient;
-  children: React.ReactNode;
-}) => React.ReactElement;
+declare const AuiProvider: {
+  (props: {
+    value: AssistantClient;
+    children: React.ReactNode;
+  }): React.ReactElement;
+  (props: {
+    value: null;
+    children: React.ReactNode;
+  }): React.ReactElement;
+};
 
 type ClientElement<K extends ClientNames> = ResourceElement<ClientOutput<K>>;
 
@@ -126,7 +132,7 @@ type ParentOf<K extends ClientNames> = ClientMeta<K> extends {
   source: infer S;
 } ? S extends ClientNames ? S : never : never;
 
-declare function RenderChildrenWithAccessor<T>(_param1: {
+declare function RenderChildrenWithAccessor<T>(_param0: {
   getItemState: (aui: AssistantClient) => T;
   children: (getItem: () => T) => ReactNode;
 }): ReactNode;
@@ -220,10 +226,6 @@ declare namespace useAui {
 declare function useAui(): AssistantClient;
 
 declare function useAui(clients: useAui.Props): AssistantClient;
-
-declare function useAui(clients: useAui.Props, config: {
-  parent: null | AssistantClient;
-}): AssistantClient;
 
 declare const useAuiEvent: <TEvent extends AssistantEventName>(selector: AssistantEventSelector<TEvent>, callback: AssistantEventCallback<TEvent>) => void;
 

@@ -23,7 +23,9 @@ import { useDerived, type DerivedElement } from "./Derived";
 import {
   useAssistantContextValue,
   DefaultAssistantClient,
+  IsolatedAssistantClient,
   createRootAssistantClient,
+  createIsolatedRootAssistantClient,
   AUI_USE_EFFECTS_SYMBOL,
 } from "./utils/react-assistant-context";
 import { getTransformScopes, type ScopesConfig } from "./attachTransformScopes";
@@ -114,9 +116,13 @@ const createClientObject = (
   parent: AssistantClient,
   fields: ClientFields,
 ): AssistantClient => {
-  // Swap DefaultAssistantClient -> createRootAssistantClient at root to change error message
+  // Swap the sentinel parents for root prototypes to change the error message
   const proto =
-    parent === DefaultAssistantClient ? createRootAssistantClient() : parent;
+    parent === DefaultAssistantClient
+      ? createRootAssistantClient()
+      : parent === IsolatedAssistantClient
+        ? createIsolatedRootAssistantClient()
+        : parent;
 
   const client = Object.create(proto) as AssistantClient;
   Object.assign(client, fields);
@@ -413,27 +419,10 @@ export function useAui(): AssistantClient;
  * ```
  */
 export function useAui(clients: useAui.Props): AssistantClient;
-/**
- * Extends an explicit parent `AssistantClient` with additional scopes.
- */
-export function useAui(
-  clients: useAui.Props,
-  config: { parent: null | AssistantClient },
-): AssistantClient;
-/** @deprecated This API is highly experimental and may be changed in a minor release */
-export function useAui(
-  clients?: useAui.Props,
-  { parent }: { parent: null | AssistantClient } = {
-    parent: useAssistantContextValue(),
-  },
-): AssistantClient {
+export function useAui(clients?: useAui.Props): AssistantClient {
+  const parent = useAssistantContextValue();
   if (clients) {
-    return useHostedAssistantClient({
-      parent: parent ?? DefaultAssistantClient,
-      clients,
-    });
+    return useHostedAssistantClient({ parent, clients });
   }
-  if (parent === null)
-    throw new Error("received null parent, this usage is not allowed");
   return parent;
 }
