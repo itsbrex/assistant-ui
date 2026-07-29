@@ -1848,9 +1848,13 @@ declare function contentPartsToA2AParts(content: ReadonlyArray<{
   type: string;
   text?: string | undefined;
   image?: string | undefined;
-  data?: string | undefined;
+  data?: unknown;
   mimeType?: string | undefined;
   filename?: string | undefined;
+  audio?: {
+    data: string;
+    format: string;
+  } | undefined;
 }>, fallbackMimeType?: string): A2APart[];
 
 declare global {
