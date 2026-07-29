@@ -124,6 +124,7 @@ const useMcpManagerResource = (
           redirectUri,
           autoConnect,
           connectionTimeout: c.connectionTimeout ?? connectionTimeout,
+          ...(c.cache !== undefined ? { cache: c.cache } : {}),
           onRemove: async () => {
             // connectors cannot be removed
           },
@@ -143,6 +144,7 @@ const useMcpManagerResource = (
           redirectUri,
           autoConnect,
           connectionTimeout: s.connectionTimeout ?? connectionTimeout,
+          ...(s.cache !== undefined ? { cache: s.cache } : {}),
           onRemove: async () => {
             setCustomServers((prev) => prev.filter((x) => x.id !== s.id));
           },
@@ -226,7 +228,7 @@ const useMcpManagerResource = (
     },
     connector: ({ index }) => serverByKind("connector", index),
     customServer: ({ index }) => serverByKind("custom", index),
-    addCustomServer: async ({ name, url, auth, connectionTimeout }) => {
+    addCustomServer: async ({ name, url, auth, connectionTimeout, cache }) => {
       const record: MCPCustomServerRecord = {
         id:
           typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -236,6 +238,7 @@ const useMcpManagerResource = (
         url,
         auth: auth as MCPAuthConfig,
         connectionTimeout,
+        ...(cache !== undefined ? { cache } : {}),
         createdAt: Date.now(),
       };
       setCustomServers((prev) => [...prev, record]);
