@@ -34,7 +34,7 @@ import {
   toMediaWireUrl,
 } from "@assistant-ui/core/internal";
 import { OPEN_CODE_REQUEST_OPTIONS } from "./openCodeRequestOptions";
-import { serializeUserParts } from "./serializeUserParts";
+import { serializeOpenCodeParts } from "./serializeUserParts";
 import { getOpenCodeTaskSessionId } from "./openCodeTaskSession";
 
 type OpenCodeEventSourceProvider = () => Pick<OpenCodeEventSource, "subscribe">;
@@ -48,7 +48,7 @@ const createLocalId = (prefix: string) =>
   `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
 const getTextContent = (parts: readonly ThreadUserMessagePart[]) =>
-  serializeUserParts(parts).trim();
+  serializeOpenCodeParts(parts).trim();
 
 // The attachment carries a name and content type its parts do not, so they
 // ride along rather than being dropped at the flatten. Both the outbound
