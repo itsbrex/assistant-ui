@@ -28,6 +28,7 @@ import {
   STREAM_RECONNECTED_EVENT_TYPE,
   type OpenCodeEventSource,
 } from "./OpenCodeEventSource";
+import { isParsableUrl } from "@assistant-ui/core/internal";
 import { OPEN_CODE_REQUEST_OPTIONS } from "./openCodeRequestOptions";
 import { serializeUserParts } from "./serializeUserParts";
 import { getOpenCodeTaskSessionId } from "./openCodeTaskSession";
@@ -70,7 +71,14 @@ const getPromptParts = (message: AppendMessage) => {
         type: "file",
         filename: part.filename,
         mime: part.mimeType,
-        url: part.data,
+        // OpenCode forwards this into an AI SDK file part, whose `url` reaches
+        // an unguarded `new URL()`, so a payload it cannot parse is wrapped. An
+        // `id` reference is an opaque handle this adapter cannot send, left
+        // unwrapped so it fails loudly rather than shipping a corrupt payload.
+        url:
+          isParsableUrl(part.data) || part.sourceType === "id"
+            ? part.data
+            : `data:${part.mimeType};base64,${part.data}`,
       });
     }
   }
