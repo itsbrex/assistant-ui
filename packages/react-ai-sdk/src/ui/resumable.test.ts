@@ -33,6 +33,120 @@ describe("createResumableSessionStorage", () => {
     expect(storage.getStreamId()).toBeNull();
   });
 
+  it("notifies subscribers when the stored stream id changes", () => {
+    const storage = createResumableSessionStorage({ key: "test-stream-id" });
+    const listener = vi.fn();
+    const unsubscribe = storage.subscribe?.(listener);
+
+    storage.setStreamId("stream-1");
+    storage.clear();
+
+    expect(listener).toHaveBeenCalledTimes(2);
+
+    unsubscribe?.();
+    storage.setStreamId("stream-2");
+
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it("isolates the current stream owner and subscribers by thread", () => {
+    const storage = createResumableSessionStorage({ key: "test-stream-id" });
+    const listenerA = vi.fn();
+    const listenerB = vi.fn();
+    storage.subscribe?.(listenerA, "thread-a");
+    storage.subscribe?.(listenerB, "thread-b");
+
+    storage.setStreamId("stream-a", "thread-a");
+
+    expect(storage.getStreamId("thread-a")).toBe("stream-a");
+    expect(storage.getStreamId("thread-b")).toBeNull();
+    expect(listenerA).toHaveBeenCalledTimes(1);
+    expect(listenerB).not.toHaveBeenCalled();
+
+    storage.clear("thread-b");
+
+    expect(storage.getStreamId("thread-a")).toBe("stream-a");
+    expect(listenerA).toHaveBeenCalledTimes(1);
+    expect(listenerB).not.toHaveBeenCalled();
+
+    storage.clear("thread-a");
+
+    expect(storage.getStreamId("thread-a")).toBeNull();
+    expect(listenerA).toHaveBeenCalledTimes(2);
+    expect(listenerB).not.toHaveBeenCalled();
+  });
+
+  it("keeps the persisted key readable after the storage is recreated", () => {
+    const storage = createResumableSessionStorage({ key: "test-stream-id" });
+    storage.setStreamId("stream-a", "__LOCALID_before_reload");
+
+    const reloadedStorage = createResumableSessionStorage({
+      key: "test-stream-id",
+    });
+
+    expect(reloadedStorage.getStreamId("__LOCALID_after_reload")).toBe(
+      "stream-a",
+    );
+  });
+
+  it("preserves the current owner for unscoped storage updates", () => {
+    const storage = createResumableSessionStorage({ key: "test-stream-id" });
+    storage.setStreamId("stream-a", "thread-a");
+    storage.subscribe?.(vi.fn(), "thread-b");
+
+    storage.setStreamId("stream-b");
+
+    expect(storage.getStreamId("thread-a")).toBe("stream-b");
+    expect(storage.getStreamId("thread-b")).toBeNull();
+
+    storage.clear("thread-a");
+    expect(storage.getStreamId("thread-a")).toBeNull();
+  });
+
+  it("caches the last known value between writes", () => {
+    const storageMethods = {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    } as unknown as Storage;
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      value: storageMethods,
+    });
+    const storage = createResumableSessionStorage({ key: "test-stream-id" });
+
+    expect(storage.getStreamId("thread-a")).toBeNull();
+    expect(storage.getStreamId("thread-a")).toBeNull();
+
+    expect(storageMethods.getItem).toHaveBeenCalledTimes(1);
+
+    storage.setStreamId("stream-a", "thread-a");
+
+    expect(storage.getStreamId("thread-a")).toBe("stream-a");
+    expect(storageMethods.getItem).toHaveBeenCalledTimes(1);
+  });
+
+  it("isolates subscriber errors", () => {
+    const storage = createResumableSessionStorage({ key: "test-stream-id" });
+    const error = new Error("listener failed");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const laterListener = vi.fn();
+
+    storage.subscribe?.(() => {
+      throw error;
+    });
+    storage.subscribe?.(laterListener);
+
+    expect(() => storage.setStreamId("stream-1")).not.toThrow();
+    expect(laterListener).toHaveBeenCalledOnce();
+    expect(consoleError).toHaveBeenCalledWith(
+      "[assistant-ui] resumable storage listener failed",
+      error,
+    );
+  });
+
   it("degrades to null and no-op when sessionStorage access is blocked", () => {
     Object.defineProperty(window, "sessionStorage", {
       configurable: true,

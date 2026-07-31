@@ -8,9 +8,11 @@ export const RESUMABLE_STREAM_ID_HEADER = RESUMABLE_STREAM_ID_HEADER_VALUE;
 const DEFAULT_STORAGE_KEY = "aui-resumable-stream-id";
 
 export type ResumableClientStorage = {
-  getStreamId(): string | null;
-  setStreamId(id: string): void;
-  clear(): void;
+  getStreamId(threadId?: string): string | null;
+  setStreamId(id: string, threadId?: string): void;
+  clear(threadId?: string): void;
+  /** Subscribes to stream id changes so automatic resume can react after mount. */
+  subscribe?(listener: () => void, threadId?: string): () => void;
 };
 
 const getSessionStorage = (): Storage | null => {
@@ -20,6 +22,11 @@ const getSessionStorage = (): Storage | null => {
   } catch {
     return null;
   }
+};
+
+type StorageSlot = {
+  value: string | null;
+  owner: string | undefined;
 };
 
 /** `sessionStorage`-backed storage for the pending resumable stream id. See the [Resumable Streams](/docs/guides/resumable-streams) guide for end-to-end wiring. */
@@ -48,18 +55,51 @@ export function createResumableSessionStorage(options?: {
       return undefined;
     }
   };
-  return {
-    getStreamId() {
-      const key = resolveKey();
-      const storage = getSessionStorage();
-      if (!key || !storage) return null;
+  const slots = new Map<string, StorageSlot>();
+  const listeners = new Set<{
+    listener: () => void;
+    threadId: string | undefined;
+  }>();
+  const readSlot = (key: string): StorageSlot => {
+    let slot = slots.get(key);
+    if (slot) return slot;
+    const storage = getSessionStorage();
+    let value: string | null = null;
+    if (storage) {
       try {
-        return storage.getItem(key);
+        value = storage.getItem(key);
       } catch {
-        return null;
+        value = null;
       }
+    }
+    slot = { value, owner: undefined };
+    slots.set(key, slot);
+    return slot;
+  };
+  const notify = (threadId?: string) => {
+    for (const subscription of listeners) {
+      if (threadId && subscription.threadId !== threadId) continue;
+      try {
+        subscription.listener();
+      } catch (error) {
+        console.error(
+          "[assistant-ui] resumable storage listener failed",
+          error,
+        );
+      }
+    }
+  };
+
+  return {
+    getStreamId(threadId) {
+      const key = resolveKey();
+      if (!key) return null;
+      const slot = readSlot(key);
+      if (slot.value === null) return null;
+      if (slot.owner && threadId && slot.owner !== threadId) return null;
+      return slot.value;
     },
-    setStreamId(id) {
+    setStreamId(id, threadId) {
       const key = resolveKey();
       const storage = getSessionStorage();
       if (!key || !storage) return;
@@ -67,17 +107,45 @@ export function createResumableSessionStorage(options?: {
         storage.setItem(key, id);
       } catch {
         // Ignore blocked or unavailable sessionStorage.
+        return;
       }
+      const slot = readSlot(key);
+      slot.value = id;
+      if (threadId) {
+        slot.owner = threadId;
+      } else if (!slot.owner) {
+        slot.owner = Array.from(listeners).find(
+          (subscription) => subscription.threadId !== undefined,
+        )?.threadId;
+      }
+      notify(slot.owner);
     },
-    clear() {
+    clear(threadId) {
       const key = resolveKey();
+      if (!key) return;
+      const slot = readSlot(key);
+      if (slot.owner && threadId && slot.owner !== threadId) return;
       const storage = getSessionStorage();
-      if (!key || !storage) return;
+      if (!storage) return;
       try {
         storage.removeItem(key);
       } catch {
         // Ignore blocked or unavailable sessionStorage.
+        return;
       }
+      slot.value = null;
+      slot.owner = undefined;
+      notify(threadId);
+    },
+    subscribe(listener, threadId) {
+      const key = resolveKey();
+      if (key && threadId) {
+        const slot = readSlot(key);
+        if (slot.value !== null) slot.owner ??= threadId;
+      }
+      const subscription = { listener, threadId };
+      listeners.add(subscription);
+      return () => listeners.delete(subscription);
     },
   };
 }
