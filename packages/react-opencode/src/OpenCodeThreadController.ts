@@ -28,7 +28,12 @@ import {
   STREAM_RECONNECTED_EVENT_TYPE,
   type OpenCodeEventSource,
 } from "./OpenCodeEventSource";
-import { isParsableUrl, parseDataUrl } from "@assistant-ui/core/internal";
+import {
+  dataUrlMediaType,
+  detectImageMediaType,
+  isParsableUrl,
+  parseDataUrl,
+} from "@assistant-ui/core/internal";
 import { OPEN_CODE_REQUEST_OPTIONS } from "./openCodeRequestOptions";
 import { serializeUserParts } from "./serializeUserParts";
 import { getOpenCodeTaskSessionId } from "./openCodeTaskSession";
@@ -48,14 +53,18 @@ const getTextContent = (parts: readonly ThreadUserMessagePart[]) =>
 
 // OpenCode forwards this into an AI SDK file part, where `url` reaches an
 // unguarded `new URL()` and a data URL's own media type wins over the declared
-// one. So an inline payload is always re-enveloped with the resolved type, and
-// only a payload that is already a url of some other scheme is forwarded.
+// one. So an envelope that disagrees with the resolved type is rebuilt, while
+// one that agrees, and a url of any other scheme, passes through byte for byte.
 const toWireUrl = (
   payload: string,
   mime: string,
-  parsed: { data: string } | null,
+  parsed: { mimeType: string; data: string } | null,
 ) => {
-  if (parsed) return `data:${mime};base64,${parsed.data}`;
+  if (parsed) {
+    return parsed.mimeType === mime
+      ? payload
+      : `data:${mime};base64,${parsed.data}`;
+  }
   if (isParsableUrl(payload)) return payload;
   return `data:${mime};base64,${payload}`;
 };
@@ -97,9 +106,9 @@ const getPromptParts = (message: AppendMessage) => {
       const parsed = parseDataUrl(part.image);
       const mime = contentType?.startsWith("image/")
         ? contentType
-        : parsed?.mimeType?.startsWith("image/")
-          ? parsed.mimeType
-          : "image/png";
+        : dataUrlMediaType(part.image)?.startsWith("image/")
+          ? dataUrlMediaType(part.image)!
+          : (detectImageMediaType(parsed?.data ?? part.image) ?? "image/png");
       promptParts.push({
         type: "file",
         ...(part.filename != null && { filename: part.filename }),
@@ -115,7 +124,9 @@ const getPromptParts = (message: AppendMessage) => {
       // branch: declared, then the envelope, then the floor.
       const parsedFile = parseDataUrl(part.data);
       const fileMime =
-        part.mimeType || parsedFile?.mimeType || "application/octet-stream";
+        part.mimeType ||
+        dataUrlMediaType(part.data) ||
+        "application/octet-stream";
       promptParts.push({
         type: "file",
         filename: part.filename,

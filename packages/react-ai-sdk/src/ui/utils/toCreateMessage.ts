@@ -1,6 +1,7 @@
-import { detectMediaType } from "@ai-sdk/provider-utils";
 import type { AppendMessage } from "@assistant-ui/core";
 import {
+  dataUrlMediaType,
+  detectImageMediaType,
   httpUrlPattern,
   isParsableUrl,
   parseDataUrl,
@@ -18,19 +19,18 @@ type InputPart = AppendMessage["content"][number] & {
   readonly filename?: string | undefined;
 };
 
-const getDataUrlMediaType = (url: string) => {
-  const match = /^data:([^;,]+)(?:[;,])/i.exec(url);
-  return match?.[1]?.toLowerCase();
-};
-
-// `detectMediaType` throws on a payload that is not valid base64, and this
-// runs on unvalidated input.
-const sniffImageMediaType = (data: string) => {
-  try {
-    return detectMediaType({ data, topLevelType: "image" });
-  } catch {
-    return undefined;
+// A data URL's own media type wins over `mediaType` downstream, so an envelope
+// that disagrees with the resolved type is rebuilt. One that agrees, and a url
+// of any other scheme, passes through byte for byte.
+const toWireUrl = (payload: string, mediaType: string) => {
+  const parsed = parseDataUrl(payload);
+  if (parsed) {
+    return parsed.mimeType === mediaType
+      ? payload
+      : `data:${mediaType};base64,${parsed.data}`;
   }
+  if (isParsableUrl(payload)) return payload;
+  return `data:${mediaType};base64,${payload}`;
 };
 
 const getImageMediaType = (part: {
@@ -39,13 +39,17 @@ const getImageMediaType = (part: {
 }) => {
   if (part.contentType?.startsWith("image/")) return part.contentType;
 
-  const dataUrlMediaType = getDataUrlMediaType(part.image);
-  if (dataUrlMediaType?.startsWith("image/")) return dataUrlMediaType;
+  const envelopeType = dataUrlMediaType(part.image);
+  if (envelopeType?.startsWith("image/")) return envelopeType;
 
-  // A bare base64 payload carries its format in its leading bytes; without
-  // this the declared type is `image/png` whatever the image actually is.
-  if (!isParsableUrl(part.image)) {
-    const sniffed = sniffImageMediaType(part.image);
+  // The payload's own leading bytes, read through a data URL envelope too so a
+  // generic one such as `application/octet-stream` does not mask the format.
+  // Only a url of some other scheme has no bytes to read here.
+  const parsed = parseDataUrl(part.image);
+  const payload =
+    parsed?.data ?? (isParsableUrl(part.image) ? undefined : part.image);
+  if (payload !== undefined) {
+    const sniffed = detectImageMediaType(payload);
     if (sniffed) return sniffed;
   }
 
@@ -77,26 +81,32 @@ export const toCreateMessage = <UI_MESSAGE extends UIMessage = UIMessage>(
         const mediaType = getImageMediaType(part);
         return {
           type: "file",
-          url: isParsableUrl(part.image)
-            ? part.image
-            : `data:${mediaType};base64,${part.image}`,
+          url: toWireUrl(part.image, mediaType),
           ...(part.filename && { filename: part.filename }),
           mediaType,
         };
       }
-      case "file":
+      case "file": {
+        // `mimeType` is a plain string, and an adapter reading `file.type` on a
+        // file the OS cannot type yields "". Same ladder as images: declared,
+        // then the envelope, then the floor.
+        const mediaType =
+          part.mimeType ||
+          dataUrlMediaType(part.data) ||
+          "application/octet-stream";
         return {
           type: "file",
           // An `id` reference is an opaque provider handle, not base64, and
           // this adapter has no way to send one. Left unwrapped so it fails
           // loudly upstream rather than shipping a corrupt payload.
           url:
-            isParsableUrl(part.data) || part.sourceType === "id"
+            part.sourceType === "id"
               ? part.data
-              : `data:${part.mimeType};base64,${part.data}`,
-          mediaType: part.mimeType,
+              : toWireUrl(part.data, mediaType),
+          mediaType,
           ...(part.filename && { filename: part.filename }),
         };
+      }
       case "audio": {
         // A data URL's own media type wins over `mediaType` downstream, so the
         // envelope is rebuilt from the typed format rather than forwarded.
