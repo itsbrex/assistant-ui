@@ -37,10 +37,11 @@ async function ghFetch(
   path: string,
   revalidate: number,
   init?: RequestInit & { headers?: Record<string, string> },
+  base: string = API_BASE,
 ): Promise<Response> {
   const { next: initNext, ...rest } = init ?? {};
   const cache = cacheInit(revalidate);
-  return fetch(`${API_BASE}${path}`, {
+  return fetch(`${base}${path}`, {
     ...rest,
     headers: ghHeaders(init?.headers),
     ...("next" in cache
@@ -64,9 +65,15 @@ export type RepoStats = {
 
 export async function getRepo(
   revalidate: number = REVALIDATE.WARM,
+  fullName: string = REPO,
 ): Promise<RepoStats | null> {
   try {
-    const res = await ghFetch("", revalidate);
+    const res = await ghFetch(
+      "",
+      revalidate,
+      undefined,
+      `https://api.github.com/repos/${fullName}`,
+    );
     if (!res.ok) return null;
     const data = await res.json();
     if (typeof data?.stargazers_count !== "number") return null;
