@@ -24,13 +24,35 @@ const getSessionStorage = (): Storage | null => {
 
 /** `sessionStorage`-backed storage for the pending resumable stream id. See the [Resumable Streams](/docs/guides/resumable-streams) guide for end-to-end wiring. */
 export function createResumableSessionStorage(options?: {
-  key?: string;
+  /**
+   * Storage key for the pending stream id. A static string namespaces per route
+   * or chat surface. A getter is read lazily on every access, so the key can be
+   * derived from the active thread's identity; while the getter returns
+   * `undefined`, reads report no pending stream and writes are dropped, so a
+   * thread whose identity is not known yet never touches another thread's key.
+   *
+   * Under a remote thread list with more than one thread, scope the key per
+   * thread and create one storage instance per thread runtime rather than a
+   * single shared one. A shared key is written and cleared by whichever thread
+   * acts last, so one conversation's stream can resume inside another.
+   */
+  key?: string | (() => string | undefined);
 }): ResumableClientStorage {
-  const key = options?.key ?? DEFAULT_STORAGE_KEY;
+  const keyOption = options?.key;
+  const resolveKey = (): string | undefined => {
+    if (typeof keyOption !== "function")
+      return keyOption ?? DEFAULT_STORAGE_KEY;
+    try {
+      return keyOption();
+    } catch {
+      return undefined;
+    }
+  };
   return {
     getStreamId() {
+      const key = resolveKey();
       const storage = getSessionStorage();
-      if (!storage) return null;
+      if (!key || !storage) return null;
       try {
         return storage.getItem(key);
       } catch {
@@ -38,8 +60,9 @@ export function createResumableSessionStorage(options?: {
       }
     },
     setStreamId(id) {
+      const key = resolveKey();
       const storage = getSessionStorage();
-      if (!storage) return;
+      if (!key || !storage) return;
       try {
         storage.setItem(key, id);
       } catch {
@@ -47,8 +70,9 @@ export function createResumableSessionStorage(options?: {
       }
     },
     clear() {
+      const key = resolveKey();
       const storage = getSessionStorage();
-      if (!storage) return;
+      if (!key || !storage) return;
       try {
         storage.removeItem(key);
       } catch {
