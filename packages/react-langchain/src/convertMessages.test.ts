@@ -307,6 +307,136 @@ describe("getMessageContent file blocks", () => {
       },
     ]);
   });
+
+  it("emits an audio block for a base64 file part with an audio mime type", () => {
+    const content = getMessageContent(
+      appendMessage({
+        type: "file",
+        data: "c291bmQ=",
+        mimeType: "audio/mp3",
+        filename: "memo.mp3",
+      }),
+    );
+
+    expect(content).toEqual([
+      { type: "text", text: " " },
+      {
+        type: "audio",
+        data: "c291bmQ=",
+        mime_type: "audio/mp3",
+        source_type: "base64",
+      },
+    ]);
+  });
+
+  it("normalizes audio/mpeg and audio/x-wav to the accepted spellings", () => {
+    expect(
+      getMessageContent(
+        appendMessage({
+          type: "file",
+          data: "c291bmQ=",
+          mimeType: "audio/mpeg",
+        }),
+      )[1],
+    ).toMatchObject({ type: "audio", mime_type: "audio/mp3" });
+
+    expect(
+      getMessageContent(
+        appendMessage({
+          type: "file",
+          data: "c291bmQ=",
+          mimeType: "audio/x-wav",
+        }),
+      )[1],
+    ).toMatchObject({ type: "audio", mime_type: "audio/wav" });
+  });
+
+  it("strips the data URL envelope from an audio file part", () => {
+    const content = getMessageContent(
+      appendMessage({
+        type: "file",
+        data: "data:audio/mpeg;base64,c291bmQ=",
+        mimeType: "audio/mp3",
+      }),
+    );
+
+    expect(content[1]).toEqual({
+      type: "audio",
+      data: "c291bmQ=",
+      mime_type: "audio/mp3",
+      source_type: "base64",
+    });
+  });
+
+  it("keeps url and id audio references as file blocks", () => {
+    expect(
+      getMessageContent(
+        appendMessage({
+          type: "file",
+          data: "https://cdn.example.com/memo.mp3",
+          mimeType: "audio/mp3",
+          filename: "memo.mp3",
+        }),
+      )[1],
+    ).toMatchObject({ type: "file", source_type: "url" });
+
+    expect(
+      getMessageContent(
+        appendMessage({
+          type: "file",
+          data: "file-abc123",
+          mimeType: "audio/mp3",
+          filename: "memo.mp3",
+          sourceType: "id",
+        }),
+      )[1],
+    ).toMatchObject({ type: "file", source_type: "id" });
+  });
+
+  it("does not treat inherited object keys as audio media types", () => {
+    for (const mimeType of ["__proto__", "constructor"]) {
+      expect(
+        getMessageContent(
+          appendMessage({
+            type: "file",
+            data: "ZmFrZQ==",
+            mimeType,
+            filename: "a.bin",
+          }),
+        )[1],
+      ).toMatchObject({ type: "file", mime_type: mimeType });
+    }
+  });
+
+  it("detects audio from the data URL envelope when the declared type is generic", () => {
+    expect(
+      getMessageContent(
+        appendMessage({
+          type: "file",
+          data: "data:audio/mpeg;base64,c291bmQ=",
+          mimeType: "application/octet-stream",
+        }),
+      )[1],
+    ).toEqual({
+      type: "audio",
+      data: "c291bmQ=",
+      mime_type: "audio/mp3",
+      source_type: "base64",
+    });
+  });
+
+  it("leaves non-audio file parts as file blocks", () => {
+    expect(
+      getMessageContent(
+        appendMessage({
+          type: "file",
+          data: "ZmFrZQ==",
+          mimeType: "application/pdf",
+          filename: "a.pdf",
+        }),
+      )[1],
+    ).toMatchObject({ type: "file", mime_type: "application/pdf" });
+  });
 });
 
 describe("getMessageContent audio and data parts", () => {
@@ -416,6 +546,18 @@ describe("getMessageContent audio and data parts", () => {
 });
 
 describe("contentToParts audio blocks", () => {
+  const inboundAudioPart = (block: Record<string, unknown>) => {
+    const result = convertLangChainBaseMessage(
+      {
+        _getType: () => "human",
+        id: "h1",
+        content: [{ type: "audio", data: "c291bmQ=", ...block }],
+      },
+      {},
+    );
+    return contentOf(result)[0];
+  };
+
   it("converts an inbound base64 audio block back to an audio part", () => {
     const result = convertLangChainBaseMessage(
       {
@@ -435,11 +577,18 @@ describe("contentToParts audio blocks", () => {
 
     expect(result).toMatchObject({
       role: "user",
-      content: [{ type: "audio", audio: { data: "c291bmQ=", format: "mp3" } }],
+      content: [
+        {
+          type: "file",
+          filename: "audio.mp3",
+          data: "c291bmQ=",
+          mimeType: "audio/mp3",
+        },
+      ],
     });
   });
 
-  it("drops an inbound audio block with an unrepresentable mime type", () => {
+  it("keeps an inbound audio block whose mime type has no wire format", () => {
     const result = convertLangChainBaseMessage(
       {
         _getType: () => "human",
@@ -456,10 +605,20 @@ describe("contentToParts audio blocks", () => {
       {},
     );
 
-    expect(result).toMatchObject({ role: "user", content: [] });
+    expect(result).toMatchObject({
+      role: "user",
+      content: [
+        {
+          type: "file",
+          filename: "audio.ogg",
+          data: "b2dn",
+          mimeType: "audio/ogg",
+        },
+      ],
+    });
   });
 
-  it("drops an audio block on an assistant message", () => {
+  it("keeps an audio block on an assistant message", () => {
     const result = convertLangChainBaseMessage(
       {
         _getType: () => "ai",
@@ -479,7 +638,61 @@ describe("contentToParts audio blocks", () => {
 
     expect(result).toMatchObject({
       role: "assistant",
-      content: [{ type: "text", text: "done" }],
+      content: [
+        {
+          type: "file",
+          filename: "audio.mp3",
+          data: "c291bmQ=",
+          mimeType: "audio/mp3",
+        },
+        { type: "text", text: "done" },
+      ],
+    });
+  });
+  it("round-trips an audio file part through both converters", () => {
+    const outbound = getMessageContent({
+      content: [
+        {
+          type: "file",
+          data: "data:audio/mpeg;base64,c291bmQ=",
+          mimeType: "audio/mpeg",
+          filename: "memo.mp3",
+        },
+      ],
+    } as unknown as AppendMessage);
+
+    const inbound = convertLangChainBaseMessage(
+      {
+        _getType: () => "human",
+        id: "h1",
+        content: outbound as never,
+      },
+      {},
+    );
+
+    expect(contentOf(inbound)).toEqual([
+      { type: "text", text: " " },
+      {
+        type: "file",
+        filename: "audio.mp3",
+        data: "c291bmQ=",
+        mimeType: "audio/mp3",
+      },
+    ]);
+
+    expect(
+      getMessageContent({
+        content: contentOf(inbound),
+      } as unknown as AppendMessage),
+    ).toEqual(outbound);
+  });
+  it("names an inbound audio attachment from its media subtype", () => {
+    expect(inboundAudioPart({ mime_type: "audio/wav" })).toMatchObject({
+      filename: "audio.wav",
+    });
+    expect(inboundAudioPart({})).toMatchObject({
+      filename: "audio",
+      mimeType: "application/octet-stream",
     });
   });
 });
