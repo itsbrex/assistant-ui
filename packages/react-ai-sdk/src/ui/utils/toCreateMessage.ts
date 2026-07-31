@@ -13,6 +13,18 @@ type InputPart = AppendMessage["content"][number] & {
   readonly filename?: string | undefined;
 };
 
+// Mirrors the upstream failure condition exactly: `convertToModelMessages`
+// hands `url` to an unguarded `new URL()`. Base64 cannot contain a colon, so
+// no payload is misread as a URL.
+const isUrl = (value: string) => {
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const getDataUrlMediaType = (url: string) => {
   const match = /^data:([^;,]+)(?:[;,])/i.exec(url);
   return match?.[1]?.toLowerCase();
@@ -51,17 +63,27 @@ export const toCreateMessage = <UI_MESSAGE extends UIMessage = UIMessage>(
           type: "text",
           text: part.text,
         };
-      case "image":
+      case "image": {
+        const mediaType = getImageMediaType(part);
         return {
           type: "file",
-          url: part.image,
+          url: isUrl(part.image)
+            ? part.image
+            : `data:${mediaType};base64,${part.image}`,
           ...(part.filename && { filename: part.filename }),
-          mediaType: getImageMediaType(part),
+          mediaType,
         };
+      }
       case "file":
         return {
           type: "file",
-          url: part.data,
+          // An `id` reference is an opaque provider handle, not base64, and
+          // this adapter has no way to send one. Left unwrapped so it fails
+          // loudly upstream rather than shipping a corrupt payload.
+          url:
+            isUrl(part.data) || part.sourceType === "id"
+              ? part.data
+              : `data:${part.mimeType};base64,${part.data}`,
           mediaType: part.mimeType,
           ...(part.filename && { filename: part.filename }),
         };
