@@ -1468,3 +1468,100 @@ describe("convertLangChainMessages unknown message types", () => {
     expect(result[0]?.role).toBe("user");
   });
 });
+
+describe("convertLangChainMessages audio transcripts", () => {
+  const audioMessage = (
+    content: LangChainMessage["content"],
+    audio: unknown,
+  ): LangChainMessage =>
+    ({
+      id: "msg-audio",
+      type: "ai",
+      content,
+      additional_kwargs: { audio },
+    }) as LangChainMessage;
+
+  it("surfaces the transcript when the provider leaves content empty", () => {
+    const result = convertLangChainMessages(
+      audioMessage("", {
+        id: "audio_1",
+        data: "UklGRg==",
+        expires_at: 1,
+        transcript: "the secret number is four seven two",
+      }),
+    );
+
+    expect(result.content).toEqual([
+      { type: "text", text: "the secret number is four seven two" },
+    ]);
+  });
+
+  it("treats a whitespace-only placeholder as no text", () => {
+    const result = convertLangChainMessages(
+      audioMessage(
+        [{ type: "text", text: "   " }] as LangChainMessage["content"],
+        { transcript: "spoken words" },
+      ),
+    );
+
+    expect(result.content).toEqual([{ type: "text", text: "spoken words" }]);
+  });
+
+  it("does not throw on a non-spec text block whose text is missing or not a string", () => {
+    for (const block of [{ type: "text" }, { type: "text", text: 42 }]) {
+      const result = convertLangChainMessages(
+        audioMessage([block] as LangChainMessage["content"], {
+          transcript: "spoken words",
+        }),
+      );
+
+      expect(result.content).toEqual([{ type: "text", text: "spoken words" }]);
+    }
+  });
+
+  it("keeps non-text parts when it substitutes the transcript", () => {
+    const result = convertLangChainMessages(
+      audioMessage(
+        [
+          { type: "text", text: "" },
+          {
+            type: "image_url",
+            image_url: { url: "https://example.com/a.png" },
+          },
+        ] as LangChainMessage["content"],
+        { transcript: "spoken words" },
+      ),
+    );
+
+    expect(result.content).toEqual([
+      { type: "image", image: "https://example.com/a.png" },
+      { type: "text", text: "spoken words" },
+    ]);
+  });
+
+  it("leaves existing text alone so the transcript is not duplicated", () => {
+    const result = convertLangChainMessages(
+      audioMessage(
+        [
+          { type: "text", text: "written answer" },
+        ] as LangChainMessage["content"],
+        { transcript: "written answer" },
+      ),
+    );
+
+    expect(result.content).toEqual([{ type: "text", text: "written answer" }]);
+  });
+
+  it("ignores an absent, blank, or non-string transcript", () => {
+    for (const audio of [
+      undefined,
+      {},
+      { transcript: "" },
+      { transcript: "   " },
+      { transcript: 42 },
+    ]) {
+      const result = convertLangChainMessages(audioMessage("", audio));
+      expect(result.content).toEqual([{ type: "text", text: "" }]);
+    }
+  });
+});
