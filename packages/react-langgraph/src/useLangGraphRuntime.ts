@@ -39,7 +39,11 @@ import {
 import { appendLangChainChunk } from "./appendLangChainChunk";
 import { useLangGraphStreamingTiming } from "./useLangGraphStreamingTiming";
 import { bufferToolResult } from "./bufferToolResults";
-import { createSerialRunQueue, type SerialRunQueue } from "./serialRunQueue";
+import {
+  createSerialRunQueue,
+  SerialRunQueueDropError,
+  type SerialRunQueue,
+} from "./serialRunQueue";
 import { langGraphExtras } from "./runtimeExtras";
 import {
   filterUIMessagesBySurvivingIds,
@@ -188,6 +192,9 @@ const useLangGraphRuntimeImpl = (options: UseLangGraphRuntimeOptions) => {
     setMessages,
     setValues,
     setUIMessages,
+    reconcileMessages,
+    reconcileUIMessages,
+    reconcileInterrupt,
   } = useLangGraphMessages({
     appendMessage: appendLangChainChunk,
     stream,
@@ -346,6 +353,8 @@ const useLangGraphRuntimeImpl = (options: UseLangGraphRuntimeOptions) => {
 
   const langGraphMessagesRef = useRef(messages);
   langGraphMessagesRef.current = messages;
+  const interruptRef = useRef(interrupt);
+  interruptRef.current = interrupt;
 
   const stagedMessagesRef = useRef(
     new Map<
@@ -516,6 +525,8 @@ const useLangGraphRuntimeImpl = (options: UseLangGraphRuntimeOptions) => {
       try {
         // TODO reuse runconfig here!
         await handleSendMessage(batch, {});
+      } catch (error) {
+        if (!(error instanceof SerialRunQueueDropError)) throw error;
       } finally {
         if (pendingResumeRef.current === batch) {
           pendingResumeRef.current = null;
@@ -627,6 +638,9 @@ const useLangGraphRuntimeImpl = (options: UseLangGraphRuntimeOptions) => {
 
       // drop stale callbacks and abort the pending load on thread switch/unmount
       const controller = new AbortController();
+      const messagesAtLoadStart = langGraphMessagesRef.current;
+      const uiMessagesAtLoadStart = uiMessagesRef.current;
+      const interruptAtLoadStart = interruptRef.current;
       toolResultBufferRef.current.clear();
       pendingStateRef.current = undefined;
       effectiveStateRef.current = undefined;
@@ -636,9 +650,9 @@ const useLangGraphRuntimeImpl = (options: UseLangGraphRuntimeOptions) => {
       load(externalId, { signal: controller.signal })
         .then(({ messages, interrupts, uiMessages }) => {
           if (controller.signal.aborted) return;
-          setMessages(messages);
-          setUIMessages(uiMessages ?? []);
-          setInterrupt(interrupts?.[0]);
+          reconcileMessages(messages, messagesAtLoadStart);
+          reconcileUIMessages(uiMessages ?? [], uiMessagesAtLoadStart);
+          reconcileInterrupt(interrupts?.[0], interruptAtLoadStart);
         })
         .catch((error) => {
           if (controller.signal.aborted) return;
@@ -653,7 +667,15 @@ const useLangGraphRuntimeImpl = (options: UseLangGraphRuntimeOptions) => {
         controller.abort();
         setIsLoadingThread(false);
       };
-    }, [threadListItem, setMessages, setUIMessages, setInterrupt, setValues]);
+    }, [
+      threadListItem,
+      setMessages,
+      setUIMessages,
+      setInterrupt,
+      setValues,
+      reconcileMessages,
+      reconcileUIMessages,
+    ]);
   }
 
   return runtime;

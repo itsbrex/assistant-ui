@@ -537,6 +537,164 @@ describe("useLangGraphRuntime", () => {
     await waitFor(() => expect(isLoadingResult.current).toBe(false));
   });
 
+  it("keeps the streamed version when the load returns the same message id", async () => {
+    const pendingLoad = deferred<LoadResult>();
+    const load = vi.fn(() => pendingLoad.promise);
+    const streamMock = vi.fn(async function* () {
+      yield {
+        event: "messages/partial",
+        data: [{ id: "shared", type: "ai" as const, content: "fresh" }],
+      };
+    });
+
+    const { result: runtimeResult } = renderHook(() =>
+      useLangGraphRuntime({
+        stream: streamMock as never,
+        load,
+        unstable_threadListAdapter: makeThreadListAdapter(),
+      }),
+    );
+    const wrapper = wrapperFactory(runtimeResult.current);
+    renderHook(() => useAuiState((s) => s.thread.isLoading), { wrapper });
+
+    await act(async () => {
+      await runtimeResult.current.threads.switchToThread("lg-thread-1");
+    });
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      runtimeResult.current.thread.append("go");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    // the snapshot predates the run, so its copy of `shared` is the stale one
+    await act(async () => {
+      pendingLoad.resolve({
+        messages: [{ id: "shared", type: "ai" as const, content: "stale" }],
+      });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const texts = runtimeResult.current.thread.getState().messages.map((m) =>
+      m.content
+        .filter((p) => p.type === "text")
+        .map((p) => (p as { text: string }).text)
+        .join(""),
+    );
+    expect(texts).toEqual(["go", "fresh"]);
+  });
+
+  it("keeps an interrupt the racing run raised when the load carries none", async () => {
+    const pendingLoad = deferred<LoadResult>();
+    const load = vi.fn(() => pendingLoad.promise);
+    const streamMock = vi.fn(async function* () {
+      yield {
+        event: "updates",
+        data: { __interrupt__: [{ value: "approval-needed" }] },
+      };
+    });
+
+    const { result: runtimeResult } = renderHook(() =>
+      useLangGraphRuntime({
+        stream: streamMock as never,
+        load,
+        unstable_threadListAdapter: makeThreadListAdapter(),
+      }),
+    );
+    const wrapper = wrapperFactory(runtimeResult.current);
+    renderHook(() => useAuiState((s) => s.thread.isLoading), { wrapper });
+
+    await act(async () => {
+      await runtimeResult.current.threads.switchToThread("lg-thread-1");
+    });
+    await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      runtimeResult.current.thread.append("go");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    await act(async () => {
+      pendingLoad.resolve({ messages: [] });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const extras = runtimeResult.current.thread.getState().extras as {
+      interrupt?: unknown;
+    };
+    expect(extras.interrupt).toEqual({ value: "approval-needed" });
+  });
+
+  it("preserves a send that starts while the initial load is pending", async () => {
+    const pending = deferred<LoadResult>();
+    const streamGate = deferred<void>();
+    const load = vi.fn(() => pending.promise);
+    const streamMock = vi.fn(async function* () {
+      await streamGate.promise;
+      yield {
+        event: "messages/complete" as const,
+        data: [{ id: "reply-1", type: "ai" as const, content: "reply" }],
+      };
+    });
+
+    const { result: runtimeResult } = renderHook(() =>
+      useLangGraphRuntime({
+        stream: streamMock,
+        load,
+        unstable_threadListAdapter: makeThreadListAdapter(),
+      }),
+    );
+    const wrapper = wrapperFactory(runtimeResult.current);
+    const { result: auiResult } = renderHook(() => useAui(), { wrapper });
+
+    await act(async () => {
+      await runtimeResult.current.threads.switchToThread("lg-thread-1");
+    });
+    await waitFor(() => expect(load).toHaveBeenCalled());
+
+    await act(async () => {
+      auiResult.current.composer.setText("sent during load");
+      auiResult.current.composer.send();
+    });
+    await waitFor(() =>
+      expect(
+        auiResult.current.thread
+          .getState()
+          .messages.flatMap((message) =>
+            message.parts.flatMap((part) =>
+              part.type === "text" ? [part.text] : [],
+            ),
+          ),
+      ).toContain("sent during load"),
+    );
+
+    await act(async () => {
+      pending.resolve({
+        messages: [{ id: "history-1", type: "human", content: "history" }],
+      });
+    });
+    await waitFor(() =>
+      expect(auiResult.current.thread.getState().isLoading).toBe(false),
+    );
+
+    await act(async () => {
+      streamGate.resolve();
+    });
+    await waitFor(() =>
+      expect(auiResult.current.thread.getState().isRunning).toBe(false),
+    );
+
+    expect(
+      auiResult.current.thread
+        .getState()
+        .messages.flatMap((message) =>
+          message.parts.flatMap((part) =>
+            part.type === "text" ? [part.text] : [],
+          ),
+        ),
+    ).toEqual(["history", "sent during load", "reply"]);
+  });
+
   it("reports loading on the first frame of a controlled thread", async () => {
     const pending = deferred<LoadResult>();
     const load = vi.fn(() => pending.promise);
@@ -1126,6 +1284,69 @@ describe("useLangGraphRuntime", () => {
       await act(async () => {
         await new Promise((r) => setTimeout(r, 10));
       });
+      expect(streamMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects a queued send when the run is cancelled", async () => {
+      const streamMock = vi.fn(async function* (
+        _messages: LangChainMessage[],
+        config: { abortSignal: AbortSignal },
+      ) {
+        if (streamMock.mock.calls.length === 1) {
+          await new Promise<void>((resolve) => {
+            config.abortSignal.addEventListener("abort", () => resolve(), {
+              once: true,
+            });
+          });
+        }
+      });
+
+      const { result: runtimeResult } = renderHook(() =>
+        useLangGraphRuntime({
+          stream: streamMock,
+          unstable_allowCancellation: true,
+        }),
+      );
+      const wrapper = wrapperFactory(runtimeResult.current);
+      const { result: sendResult } = renderHook(() => useLangGraphSend(), {
+        wrapper,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      let firstRun!: Promise<void>;
+      await act(async () => {
+        firstRun = sendResult.current(
+          [{ type: "human", content: "first" }],
+          {},
+        );
+      });
+      await waitFor(() => expect(streamMock).toHaveBeenCalledTimes(1));
+
+      let queuedRun!: Promise<void>;
+      await act(async () => {
+        queuedRun = sendResult.current(
+          [{ type: "human", content: "queued" }],
+          {},
+        );
+      });
+      const queuedRunResult = queuedRun.then(
+        () => undefined,
+        (error) => error,
+      );
+
+      await act(async () => {
+        runtimeResult.current.thread.cancelRun();
+      });
+
+      await expect(queuedRunResult).resolves.toEqual(
+        expect.objectContaining({ message: "Queued run was dropped." }),
+      );
+      await firstRun;
+      await waitFor(() =>
+        expect(runtimeResult.current.thread.getState().isRunning).toBe(false),
+      );
       expect(streamMock).toHaveBeenCalledTimes(1);
     });
 
