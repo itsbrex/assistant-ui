@@ -465,7 +465,11 @@ export const useLangGraphMessages = <TMessage extends { id?: string }>({
   // it wins on an id collision and keeps its position; the snapshot only
   // contributes history the run has never seen.
   const reconcileMessages = useCallback(
-    (serverMessages: TMessage[], messagesAtLoadStart: TMessage[]) => {
+    (
+      serverMessages: TMessage[],
+      messagesAtLoadStart: TMessage[],
+      { snapshotIsComplete = true }: { snapshotIsComplete?: boolean } = {},
+    ) => {
       const accumulator = activeAccumulatorRef.current;
       const currentMessages = accumulator?.getMessages() ?? messagesRef.current;
       const baselineIds = new Set(
@@ -497,8 +501,8 @@ export const useLangGraphMessages = <TMessage extends { id?: string }>({
           if (isRunTouched(message)) return [message];
           if (message.id !== undefined && serverById.has(message.id))
             return [serverById.get(message.id) as TMessage];
-          // untouched by the run and absent from the snapshot: deleted server side
-          return [];
+          // Absence is a deletion only when the snapshot is the whole thread.
+          return snapshotIsComplete ? [] : [message];
         }),
       ];
       setMessagesImmediate(
@@ -526,7 +530,11 @@ export const useLangGraphMessages = <TMessage extends { id?: string }>({
   );
 
   const reconcileUIMessages = useCallback(
-    (serverMessages: UIMessage[], messagesAtLoadStart: UIMessage[]) => {
+    (
+      serverMessages: UIMessage[],
+      messagesAtLoadStart: UIMessage[],
+      { snapshotIsComplete = true }: { snapshotIsComplete?: boolean } = {},
+    ) => {
       const accumulator = activeAccumulatorRef.current;
       const currentMessages =
         accumulator?.getUIMessages() ?? uiMessagesRef.current;
@@ -546,7 +554,8 @@ export const useLangGraphMessages = <TMessage extends { id?: string }>({
             !baselineIds.has(message.id) || !baselineMessages.has(message);
           if (runTouched) return [message];
           const fromServer = serverById.get(message.id);
-          return fromServer ? [fromServer] : [];
+          if (fromServer) return [fromServer];
+          return snapshotIsComplete ? [] : [message];
         }),
       ];
       setUIMessagesImmediate(
