@@ -56,6 +56,18 @@ export type ThreadListRuntime = {
 
   getLoadThreadsPromise(): Promise<void>;
   reload(): Promise<void>;
+  /**
+   * Refetches the open thread's remote state, for state that changed out of
+   * band and so never reached the stream. When the runtime declares the
+   * in-place capability (`unstable_refetchThread`), composer drafts survive,
+   * existing messages stay rendered during the refetch, and the promise
+   * settles with the refetch, rejecting if it fails; that runtime also owns
+   * what happens to a run in progress, since this does not stop one. Runtimes
+   * without the capability have their hook remounted instead, which discards
+   * unsent composer input and ends any run, and the promise resolves once the
+   * new runtime attaches. A thread that has not been sent yet is left alone.
+   */
+  reloadMainThread(): Promise<void>;
   loadMore(): Promise<void>;
 };
 
@@ -155,6 +167,7 @@ export class ThreadListRuntimeImpl implements ThreadListRuntime {
     this.switchToNewThread = this.switchToNewThread.bind(this);
     this.getLoadThreadsPromise = this.getLoadThreadsPromise.bind(this);
     this.reload = this.reload.bind(this);
+    this.reloadMainThread = this.reloadMainThread.bind(this);
     this.loadMore = this.loadMore.bind(this);
     this.getState = this.getState.bind(this);
     this.subscribe = this.subscribe.bind(this);
@@ -181,6 +194,10 @@ export class ThreadListRuntimeImpl implements ThreadListRuntime {
 
   public reload(): Promise<void> {
     return this._core.reload?.() ?? RESOLVED_PROMISE;
+  }
+
+  public reloadMainThread(): Promise<void> {
+    return this._core.reloadMainThread?.() ?? RESOLVED_PROMISE;
   }
 
   public loadMore(): Promise<void> {

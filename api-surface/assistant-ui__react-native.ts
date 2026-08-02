@@ -2542,6 +2542,7 @@ type RuntimeCapabilities = {
   readonly switchBranchDuringRun: boolean;
   readonly edit: boolean;
   readonly reload: boolean;
+  readonly refetchThread: boolean;
   readonly delete: boolean;
   readonly cancel: boolean;
   readonly unstable_copy: boolean;
@@ -3056,6 +3057,7 @@ type ThreadListRuntime = {
   switchToNewThread(): Promise<void>;
   getLoadThreadsPromise(): Promise<void>;
   reload(): Promise<void>;
+  reloadMainThread(): Promise<void>;
   loadMore(): Promise<void>;
 };
 
@@ -3077,6 +3079,7 @@ type ThreadListRuntimeCore = {
   switchToNewThread(): Promise<void>;
   getLoadThreadsPromise(): Promise<void>;
   reload?(): Promise<void>;
+  reloadMainThread?(): Promise<void>;
   loadMore?(): Promise<void>;
   detach(threadId: string): Promise<void>;
   rename(threadId: string, newTitle: string): Promise<void>;
@@ -3106,6 +3109,7 @@ declare class ThreadListRuntimeImpl implements ThreadListRuntime {
   switchToNewThread(): Promise<void>;
   getLoadThreadsPromise(): Promise<void>;
   reload(): Promise<void>;
+  reloadMainThread(): Promise<void>;
   loadMore(): Promise<void>;
   getState(): ThreadListState;
   subscribe(callback: () => void): Unsubscribe$1;
@@ -3317,6 +3321,7 @@ type ThreadRuntimeCore = Readonly<{
   exportExternalState(): any;
   importExternalState(state: any): void;
   reset(initialMessages?: readonly ThreadMessageLike[]): void;
+  unstable_refetchThread?: (() => Promise<void>) | undefined;
   unstable_on<E extends ThreadRuntimeEventType>(event: E, callback: ThreadRuntimeEventCallback<E>): Unsubscribe$1;
 }>;
 
@@ -3417,6 +3422,7 @@ declare class ThreadRuntimeImpl implements ThreadRuntime {
       exportExternalState(): any;
       importExternalState(state: any): void;
       reset(initialMessages?: readonly ThreadMessageLike[]): void;
+      unstable_refetchThread?: (() => Promise<void>) | undefined;
       unstable_on<E extends ThreadRuntimeEventType>(event: E, callback: ThreadRuntimeEventCallback<E>): Unsubscribe$1;
     }>;
   } & {

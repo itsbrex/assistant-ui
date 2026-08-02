@@ -245,6 +245,34 @@ export class RemoteThreadListThreadListRuntimeCore
     }
   }
 
+  public async reloadMainThread(): Promise<void> {
+    const threadId = this._mainThreadId;
+    if (threadId === undefined) return;
+
+    // An unsent thread holds no remote state, so a refetch would only discard
+    // what the user has typed.
+    if (this.getItemById(threadId)?.status === "new") return;
+
+    const runtimeCore = this._hookManager.getThreadRuntimeCore(threadId);
+
+    try {
+      if (runtimeCore?.unstable_refetchThread) {
+        // Called on the core so class-method implementations keep `this`.
+        await runtimeCore.unstable_refetchThread();
+      } else {
+        await this._hookManager.__internal_restartThreadRuntime(threadId);
+      }
+    } catch (error) {
+      // delete and detach switch the main thread away before stopping the
+      // runtime, so a rejection once that has happened belongs to them.
+      if (threadId !== this._mainThreadId) return;
+      throw error;
+    }
+
+    if (threadId !== this._mainThreadId) return;
+    this._notifySubscribers();
+  }
+
   public reload() {
     this._loadGeneration++;
     this._loadThreadsPromise = undefined;
