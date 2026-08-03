@@ -42,7 +42,7 @@ import type { UserExternalState } from "../../../augmentations";
 
 const convertAppendMessageToCommand = (
   message: AppendMessage,
-): AddMessageCommand => {
+): AddMessageCommand | null => {
   if (message.role !== "user")
     throw new Error("Only user messages are supported");
 
@@ -58,6 +58,8 @@ const convertAppendMessageToCommand = (
       parts.push({ type: "image", image: contentPart.image });
     }
   }
+
+  if (parts.length === 0) return null;
 
   return {
     type: "add-message",
@@ -126,6 +128,20 @@ const useAssistantTransportThreadRuntime = <T>(
   const commandQueue = useCommandQueue({
     onQueue: () => runManager.schedule(),
   });
+
+  const enqueueAppendMessage = (message: AppendMessage) => {
+    const command = convertAppendMessageToCommand(message);
+    if (!command) {
+      console.warn(
+        "[assistant-ui] Skipped add-message command with no supported parts",
+      );
+      return;
+    }
+    parentIdRef.current = message.parentId;
+    commandQueue.enqueue(command, {
+      schedule: message.startRun ?? message.role === "user",
+    });
+  };
 
   const threadId = useAuiState((s) => s.threadListItem.remoteId);
 
@@ -332,21 +348,11 @@ const useAssistantTransportThreadRuntime = <T>(
       },
       state: agentStateRef.current as UserExternalState,
     } satisfies AssistantTransportExtras,
-    onNew: async (message: AppendMessage): Promise<void> => {
-      parentIdRef.current = message.parentId;
-      const command = convertAppendMessageToCommand(message);
-      commandQueue.enqueue(command, {
-        schedule: message.startRun ?? message.role === "user",
-      });
-    },
+    onNew: async (message: AppendMessage): Promise<void> =>
+      enqueueAppendMessage(message),
     ...(options.capabilities?.edit && {
-      onEdit: async (message: AppendMessage): Promise<void> => {
-        parentIdRef.current = message.parentId;
-        const command = convertAppendMessageToCommand(message);
-        commandQueue.enqueue(command, {
-          schedule: message.startRun ?? message.role === "user",
-        });
-      },
+      onEdit: async (message: AppendMessage): Promise<void> =>
+        enqueueAppendMessage(message),
     }),
     ...(commandQueue.state.queued.length > 0 && {
       onReload: async (parentId: string | null) => {
