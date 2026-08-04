@@ -1,8 +1,14 @@
 import { createMDX } from "fumadocs-mdx/next";
 import { withAui } from "@assistant-ui/next";
 import type { NextConfig } from "next";
+import {
+  AGENT_DISCOVERY_REWRITES,
+  API_CATALOG_LINK_HEADER,
+} from "./lib/agent-discovery-routes";
 
 const isDev = process.env.NODE_ENV === "development";
+
+const apiCatalogDiscoveryPaths = ["/(.*)"];
 
 const deployEnv = process.env.VERCEL_ENV ?? process.env.NODE_ENV;
 const faviconVariant =
@@ -65,6 +71,10 @@ const config: NextConfig = {
         },
       ],
     },
+    ...apiCatalogDiscoveryPaths.map((source) => ({
+      source,
+      headers: [{ key: "Link", value: API_CATALOG_LINK_HEADER }],
+    })),
   ],
   redirects: async () => [
     {
@@ -76,6 +86,7 @@ const config: NextConfig = {
   rewrites: async () => ({
     beforeFiles: [
       ...faviconRewrites,
+      ...AGENT_DISCOVERY_REWRITES,
       {
         source: "/mcp",
         destination: "/api/mcp",
