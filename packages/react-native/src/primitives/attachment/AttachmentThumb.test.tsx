@@ -71,6 +71,14 @@ describe("AttachmentThumb", () => {
     const el = await mount("report.", "image");
     expect(el.textContent).toBe("image");
   });
+  it("renders custom children instead of the extension", async () => {
+    h.attachment.name = "photo.png";
+    await act(async () => {
+      root.render(<AttachmentThumb testID="thumb">custom</AttachmentThumb>);
+    });
+    const el = container.querySelector('[data-testid="thumb"]') as HTMLElement;
+    expect(el.textContent).toBe("custom");
+  });
 
   it("forwards props to the underlying Text", async () => {
     h.attachment.name = "photo.png";

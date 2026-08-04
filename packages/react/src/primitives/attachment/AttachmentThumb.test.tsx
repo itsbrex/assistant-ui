@@ -16,12 +16,16 @@ vi.mock("@assistant-ui/store", async (importOriginal) => {
   };
 });
 
-const renderThumb = (name: string, type = "file") => {
+const renderThumb = (
+  name: string,
+  type = "file",
+  props?: AttachmentPrimitiveThumb.Props,
+) => {
   mockUseAuiState.mockImplementation((selector: UseAuiStateSelector) =>
     selector({ attachment: { name, type } } as never),
   );
 
-  return renderToStaticMarkup(<AttachmentPrimitiveThumb />);
+  return renderToStaticMarkup(<AttachmentPrimitiveThumb {...props} />);
 };
 
 describe("AttachmentPrimitiveThumb", () => {
@@ -47,5 +51,20 @@ describe("AttachmentPrimitiveThumb", () => {
 
   it("falls back to the attachment type for a trailing-dot name", () => {
     expect(renderThumb("report.", "image")).toBe("<div>image</div>");
+  });
+
+  it("renders custom children instead of the label", () => {
+    expect(renderThumb("report.pdf", "file", { children: <em>PDF</em> })).toBe(
+      "<div><em>PDF</em></div>",
+    );
+  });
+
+  it("renders the child element when asChild is set", () => {
+    expect(
+      renderThumb("report.pdf", "file", {
+        asChild: true,
+        children: <span>custom</span>,
+      }),
+    ).toBe("<span>custom</span>");
   });
 });

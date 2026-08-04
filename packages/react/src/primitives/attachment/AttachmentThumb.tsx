@@ -29,7 +29,7 @@ export const AttachmentPrimitiveThumb = forwardRef<
   });
   return (
     <Primitive.div {...props} ref={ref}>
-      {label}
+      {props.children ?? label}
     </Primitive.div>
   );
 });
