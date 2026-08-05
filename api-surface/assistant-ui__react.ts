@@ -724,6 +724,7 @@ type AssistantTransportOptions<T> = {
   initialState: T;
   api: string;
   resumeApi?: string;
+  resumeStateApi?: string;
   protocol?: AssistantTransportProtocol;
   strict?: boolean;
   converter: AssistantTransportStateConverter<T>;
@@ -3809,7 +3810,8 @@ declare const SelectionToolbarPrimitiveRoot: import("react").ForwardRefExoticCom
 
 type SendCommandsRequestBody = {
   commands: QueuedCommand[];
-  state: unknown;
+  state?: unknown;
+  runId?: string;
   system: string | undefined;
   tools: Record<string, unknown> | undefined;
   callSettings: LanguageModelV1CallSettings | undefined;
