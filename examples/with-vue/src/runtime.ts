@@ -4,37 +4,81 @@ import {
   ExternalStoreRuntimeCore,
 } from "@assistant-ui/core/internal";
 
-export type EchoMessage = { role: "user" | "assistant"; text: string };
+export type EchoMessage = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+};
+
+let nextId = 0;
+const freshId = (prefix: string) => `${prefix}-${nextId++}`;
 
 const messageText = (message: AppendMessage) =>
   message.content
     .map((part) => (part.type === "text" ? part.text : ""))
     .join("");
 
+const convertEchoMessage = (message: EchoMessage) => ({
+  id: message.id,
+  role: message.role,
+  content: [{ type: "text" as const, text: message.text }],
+});
+
 export const createEchoRuntime = () => {
   let messages: EchoMessage[] = [];
   let isRunning = false;
   let replyTimer: ReturnType<typeof setTimeout> | undefined;
 
+  const reply = (text: string) => {
+    isRunning = true;
+    sync();
+    replyTimer = setTimeout(() => {
+      messages = [
+        ...messages,
+        { id: freshId("assistant"), role: "assistant", text: `Echo: ${text}` },
+      ];
+      isRunning = false;
+      sync();
+    }, 600);
+  };
+
   const makeAdapter = (): ExternalStoreAdapter<EchoMessage> => ({
     messages,
     isRunning,
-    convertMessage: (message) => ({
-      role: message.role,
-      content: [{ type: "text", text: message.text }],
-    }),
-    onNew: async (message) => {
-      messages = [...messages, { role: "user", text: messageText(message) }];
-      isRunning = true;
+    convertMessage: convertEchoMessage,
+    setMessages: (next) => {
+      messages = next;
       sync();
-      replyTimer = setTimeout(() => {
-        messages = [
-          ...messages,
-          { role: "assistant", text: `Echo: ${messages.at(-1)!.text}` },
-        ];
-        isRunning = false;
-        sync();
-      }, 600);
+    },
+    onNew: async (message) => {
+      const text = messageText(message);
+      messages = [...messages, { id: freshId("user"), role: "user", text }];
+      reply(text);
+    },
+    onEdit: async (message) => {
+      const text = messageText(message);
+      const parentIndex = message.parentId
+        ? messages.findIndex((entry) => entry.id === message.parentId) + 1
+        : 0;
+      messages = [
+        ...messages.slice(0, parentIndex),
+        { id: freshId("user"), role: "user", text },
+      ];
+      reply(text);
+    },
+    onReload: async (parentId) => {
+      let parentIndex = 0;
+      if (parentId) {
+        const index = messages.findIndex((entry) => entry.id === parentId);
+        if (index === -1) return;
+        parentIndex = index + 1;
+      }
+      const sliced = messages.slice(0, parentIndex);
+      const lastUser = [...sliced]
+        .reverse()
+        .find((entry) => entry.role === "user");
+      messages = sliced;
+      reply(`${lastUser?.text ?? ""} (again)`);
     },
     onCancel: async () => {
       clearTimeout(replyTimer);
