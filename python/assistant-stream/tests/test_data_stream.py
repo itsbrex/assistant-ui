@@ -2,6 +2,7 @@ import json
 import logging
 
 import pytest
+from assistant_stream import create_run, RunController
 
 from assistant_stream.assistant_stream_chunk import (
     AnnotationsChunk,
@@ -10,6 +11,8 @@ from assistant_stream.assistant_stream_chunk import (
     StepFinishChunk,
     StepStartChunk,
     TextDeltaChunk,
+    ReasoningDeltaChunk,
+    ReasoningPartStartChunk,
     ToolCallArgsTextFinishChunk,
     ToolCallBeginChunk,
     ToolCallDeltaChunk,
@@ -232,3 +235,93 @@ async def test_data_stream_encoder_carries_trailing_args_on_the_final_chunk():
         json.loads(line[2:])["argsTextDelta"] for line in lines if line.startswith("c:")
     )
     assert json.loads(args_text) == {"q": 1}
+
+
+@pytest.mark.anyio
+async def test_data_stream_encoder_emits_a_reasoning_part_start_for_a_summary():
+    """A summary cannot ride on a reasoning delta, and a part that never
+    appends text emits nothing at all without this frame."""
+    encoder = DataStreamEncoder()
+
+    async def stream():
+        yield ReasoningPartStartChunk(unstable_summary="Planning")
+        yield ReasoningDeltaChunk(reasoning_delta="thinking", parent_id=None)
+
+    lines = [line async for line in encoder.encode_stream(stream())]
+
+    assert lines == [
+        'aui-reasoning-part-start:{"unstable_summary": "Planning"}\n',
+        'g:"thinking"\n',
+    ]
+
+
+@pytest.mark.anyio
+async def test_data_stream_encoder_carries_the_parent_on_a_reasoning_part_start():
+    encoder = DataStreamEncoder()
+
+    async def stream():
+        yield ReasoningPartStartChunk(unstable_summary="Planning", parent_id="p1")
+
+    lines = [line async for line in encoder.encode_stream(stream())]
+
+    assert lines == [
+        'aui-reasoning-part-start:{"unstable_summary": "Planning", "parentId": "p1"}\n'
+    ]
+
+
+@pytest.mark.anyio
+async def test_data_stream_encoder_suppresses_a_reasoning_start_without_a_summary():
+    """A start with nothing to carry must not change the wire, matching the
+    TypeScript encoder."""
+    encoder = DataStreamEncoder()
+
+    async def stream():
+        yield ReasoningPartStartChunk()
+        yield ReasoningDeltaChunk(reasoning_delta="thinking", parent_id=None)
+
+    lines = [line async for line in encoder.encode_stream(stream())]
+
+    assert lines == ['g:"thinking"\n']
+
+
+@pytest.mark.anyio
+async def test_data_stream_encoder_carries_an_explicitly_empty_summary():
+    encoder = DataStreamEncoder()
+
+    async def stream():
+        yield ReasoningPartStartChunk(unstable_summary="")
+
+    lines = [line async for line in encoder.encode_stream(stream())]
+
+    assert lines == ['aui-reasoning-part-start:{"unstable_summary": ""}\n']
+
+
+@pytest.mark.anyio
+async def test_run_controller_add_reasoning_part_emits_the_summary():
+    """The public helper is the only supported way to open a summarized
+    reasoning part, so it is pinned rather than the chunk it builds."""
+
+    async def run_callback(controller: RunController):
+        controller.add_reasoning_part("Planning")
+        controller.append_reasoning("thinking")
+
+    encoder = DataStreamEncoder()
+    lines = [line async for line in encoder.encode_stream(create_run(run_callback))]
+
+    assert lines == [
+        'aui-reasoning-part-start:{"unstable_summary": "Planning"}\n',
+        'g:"thinking"\n',
+    ]
+
+
+@pytest.mark.anyio
+async def test_run_controller_add_reasoning_part_carries_the_parent():
+    async def run_callback(controller: RunController):
+        controller.with_parent_id("p1").add_reasoning_part("Planning")
+
+    encoder = DataStreamEncoder()
+    lines = [line async for line in encoder.encode_stream(create_run(run_callback))]
+
+    assert lines == [
+        'aui-reasoning-part-start:{"unstable_summary": "Planning", "parentId": "p1"}\n'
+    ]
