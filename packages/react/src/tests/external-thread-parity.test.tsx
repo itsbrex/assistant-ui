@@ -322,6 +322,101 @@ describe("ExternalThread composer", () => {
     expect(steer).not.toHaveBeenCalled();
   });
 
+  it("dispatches a same-tick beginEdit + setText + send sequence", async () => {
+    const onEdit = vi.fn();
+    const { aui } = renderThread({
+      messages: [
+        {
+          id: "u1",
+          role: "user",
+          content: [{ type: "text", text: "hi" }],
+          createdAt: new Date(0),
+          attachments: [],
+          metadata: { custom: {} },
+        } as unknown as ExternalThreadMessage,
+      ],
+      isRunning: false,
+      onEdit,
+    });
+
+    const composer = () => aui().thread.message({ id: "u1" }).composer();
+    composer().beginEdit();
+    composer().setText("edited");
+    composer().send();
+
+    await waitFor(() => expect(onEdit).toHaveBeenCalledTimes(1));
+    expect(onEdit.mock.calls[0]![0]).toMatchObject({
+      sourceId: "u1",
+      content: [{ type: "text", text: "edited" }],
+    });
+    await waitFor(() => expect(composer().getState().isEditing).toBe(false));
+  });
+
+  it("prefills the edit composer from the message on beginEdit", async () => {
+    const onEdit = vi.fn();
+    const { aui } = renderThread({
+      messages: [
+        {
+          id: "a1",
+          role: "assistant",
+          content: [{ type: "text", text: "original answer" }],
+          createdAt: new Date(0),
+          attachments: [
+            {
+              id: "att1",
+              type: "file",
+              name: "a.txt",
+              contentType: "text/plain",
+              status: { type: "complete" },
+              content: [],
+            },
+          ],
+          metadata: { custom: {} },
+        } as unknown as ExternalThreadMessage,
+      ],
+      isRunning: false,
+      onEdit,
+    });
+
+    const composer = () => aui().thread.message({ id: "a1" }).composer();
+    composer().beginEdit();
+    await waitFor(() => {
+      const state = composer().getState();
+      expect(state.text).toBe("original answer");
+      expect(state.role).toBe("assistant");
+      expect(state.attachments).toHaveLength(1);
+    });
+    expect(() => composer().beginEdit()).toThrow("Edit already in progress");
+
+    composer().send();
+    await waitFor(() => expect(onEdit).toHaveBeenCalledTimes(1));
+    expect(onEdit.mock.calls[0]![0]).toMatchObject({
+      sourceId: "a1",
+      content: [{ type: "text", text: "original answer" }],
+    });
+  });
+
+  it("throws on edit-composer send before beginEdit", () => {
+    const { aui } = renderThread({
+      messages: [
+        {
+          id: "u1",
+          role: "user",
+          content: [{ type: "text", text: "hi" }],
+          createdAt: new Date(0),
+          attachments: [],
+          metadata: { custom: {} },
+        } as unknown as ExternalThreadMessage,
+      ],
+      isRunning: false,
+      onEdit: vi.fn(),
+    });
+
+    expect(() => aui().thread.message({ id: "u1" }).composer().send()).toThrow(
+      "Composer is not available",
+    );
+  });
+
   it("throws on beginEdit when the runtime has no edit handler", () => {
     const { aui } = renderThread({
       messages: [
