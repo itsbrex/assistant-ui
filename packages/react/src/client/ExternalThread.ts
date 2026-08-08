@@ -183,6 +183,7 @@ const useMessageClient = ({
   );
 
   const handleBeginEdit = () => {
+    if (!onEdit) throw new Error("Runtime does not support editing.");
     setIsEditing(true);
   };
 
@@ -191,7 +192,8 @@ const useMessageClient = ({
   };
 
   const handleSendEdit = (msg: AppendMessage) => {
-    onEdit?.({
+    if (!onEdit) throw new Error("Runtime does not support editing.");
+    onEdit({
       ...msg,
       parentId,
       sourceId: message.id,
