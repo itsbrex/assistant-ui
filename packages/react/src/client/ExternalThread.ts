@@ -33,6 +33,7 @@ import type {
   ExternalThreadQueueAdapter,
   ExternalThreadBranchAdapter,
   QueuePlacement,
+  FeedbackAdapter,
   SpeechState,
   SpeechSynthesisAdapter,
 } from "@assistant-ui/core";
@@ -99,6 +100,7 @@ export type ExternalThreadProps = {
   onResumeToolCall?: ((options: ResumeToolCallOptions) => void) | undefined;
   onLoadExternalState?: ((state: unknown) => void) | undefined;
   attachmentAdapter?: AttachmentAdapter | undefined;
+  feedbackAdapter?: FeedbackAdapter | undefined;
   speechAdapter?: SpeechSynthesisAdapter | undefined;
   /** Queue adapter for runtimes that support message queuing and steering. */
   queue?: ExternalThreadQueueAdapter;
@@ -122,6 +124,8 @@ type MessageClientProps = {
   onAddToolResult?: ((options: AddToolResultOptions) => void) | undefined;
   onResumeToolCall?: ((options: ResumeToolCallOptions) => void) | undefined;
   attachmentAdapter?: AttachmentAdapter | undefined;
+  submittedFeedback: "positive" | "negative" | undefined;
+  onSubmitFeedback: (feedback: { type: "positive" | "negative" }) => void;
   speech: SpeechState | undefined;
   onSpeak: () => void;
   onStopSpeaking: () => void;
@@ -140,6 +144,8 @@ const useMessageClient = ({
   onAddToolResult,
   onResumeToolCall,
   attachmentAdapter,
+  submittedFeedback,
+  onSubmitFeedback,
   speech,
   onSpeak,
   onStopSpeaking,
@@ -213,8 +219,18 @@ const useMessageClient = ({
   const branchCount = branchIndex === -1 ? 1 : branchIds.length;
 
   const state = useMemo(() => {
+    const messageWithFeedback: ExternalThreadMessage =
+      submittedFeedback && message.role === "assistant"
+        ? {
+            ...message,
+            metadata: {
+              ...message.metadata,
+              submittedFeedback: { type: submittedFeedback },
+            },
+          }
+        : message;
     return {
-      ...message,
+      ...messageWithFeedback,
       attachments: message.attachments ?? [],
       parentId,
       isLast: false, // Will be set by thread
@@ -237,6 +253,7 @@ const useMessageClient = ({
     partClients.state,
     branchNumber,
     branchCount,
+    submittedFeedback,
     speech,
   ]);
 
@@ -249,7 +266,7 @@ const useMessageClient = ({
     },
     speak: onSpeak,
     stopSpeaking: onStopSpeaking,
-    submitFeedback: () => {},
+    submitFeedback: onSubmitFeedback,
     switchToBranch: ({ position, branchId }) => {
       if (!branches) return;
       const target =
@@ -825,6 +842,7 @@ const useExternalThread = ({
   onResumeToolCall,
   onLoadExternalState,
   attachmentAdapter,
+  feedbackAdapter,
   speechAdapter,
   queue,
   branches,
@@ -834,6 +852,55 @@ const useExternalThread = ({
     () => dedupeMessagesById(messagesProp),
     [messagesProp],
   );
+
+  // Local entries are optimistic: they apply only while the message's
+  // external submittedFeedback still equals the value seen at click time.
+  const [submittedFeedback, setSubmittedFeedback] = useState<
+    Record<
+      string,
+      {
+        type: "positive" | "negative";
+        external: "positive" | "negative" | undefined;
+      }
+    >
+  >({});
+
+  const feedbackFor = (msg: ExternalThreadMessage) => {
+    const entry = submittedFeedback[msg.id];
+    return entry && msg.metadata.submittedFeedback?.type === entry.external
+      ? entry.type
+      : undefined;
+  };
+
+  useEffect(() => {
+    setSubmittedFeedback((prev) => {
+      const live = Object.entries(prev).filter(([id, entry]) => {
+        const msg = messages.find((m) => m.id === id);
+        return !!msg && msg.metadata.submittedFeedback?.type === entry.external;
+      });
+      return live.length === Object.keys(prev).length
+        ? prev
+        : Object.fromEntries(live);
+    });
+  }, [messages]);
+
+  const handleSubmitFeedback = (
+    message: ExternalThreadMessage,
+    { type }: { type: "positive" | "negative" },
+  ) => {
+    if (!feedbackAdapter) throw new Error("Feedback adapter not configured");
+    feedbackAdapter.submit({ message, type });
+
+    if (message.role === "assistant") {
+      setSubmittedFeedback((prev) => ({
+        ...prev,
+        [message.id]: {
+          type,
+          external: message.metadata.submittedFeedback?.type,
+        },
+      }));
+    }
+  };
 
   const [speechState, setSpeech] = useState<SpeechState | undefined>(undefined);
   const [speechController] = useState(() => createSpeechController(setSpeech));
@@ -872,6 +939,8 @@ const useExternalThread = ({
         onAddToolResult,
         onResumeToolCall,
         attachmentAdapter,
+        submittedFeedback: feedbackFor(msg),
+        onSubmitFeedback: (feedback) => handleSubmitFeedback(msg, feedback),
         speech: speech?.messageId === msg.id ? speech : undefined,
         onSpeak: () => handleSpeak(msg),
         onStopSpeaking: () => speechController.stopMessage(msg.id),
@@ -922,6 +991,7 @@ const useExternalThread = ({
   const hasEdit = !!onEdit;
   const hasReload = !!onReload;
   const hasAttachments = !!attachmentAdapter;
+  const hasFeedback = !!feedbackAdapter;
   const hasSpeech = !!speechAdapter;
   const state = useMemo(() => {
     const messageStates = messageClients.state.map((s, idx, arr) => ({
@@ -942,7 +1012,7 @@ const useExternalThread = ({
         cancel: isRunning,
         speech: hasSpeech,
         attachments: hasAttachments,
-        feedback: false,
+        feedback: hasFeedback,
         voice: false,
         switchToBranch: hasBranches,
         switchBranchDuringRun: false,
@@ -969,6 +1039,7 @@ const useExternalThread = ({
     hasEdit,
     hasReload,
     hasAttachments,
+    hasFeedback,
     hasSpeech,
     speech,
     messageClients.state,
