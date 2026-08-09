@@ -1,16 +1,19 @@
 "use client";
 
+import type { ComponentProps } from "react";
 import { CopyIcon, RefreshCwIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ghostButton, paper } from "./surfaces";
 
-export interface MessagePairProps {
+export interface MessagePairProps extends Omit<
+  ComponentProps<"div">,
+  "children"
+> {
   userMessage: string;
   words: readonly string[];
   visibleWords: number;
   streaming: boolean;
   variant?: "bubble" | "flat";
-  className?: string;
 }
 
 export function MessagePair({
@@ -20,9 +23,15 @@ export function MessagePair({
   streaming,
   variant = "bubble",
   className,
+  ...props
 }: MessagePairProps) {
   return (
-    <div className={cn("flex w-full max-w-sm flex-col gap-5", className)}>
+    <div
+      data-slot="message-pair"
+      className={cn("flex w-full max-w-sm flex-col gap-5", className)}
+
+      {...props}
+    >
       <p
         className={cn(
           "max-w-[85%] self-end text-sm",

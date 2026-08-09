@@ -1,5 +1,6 @@
 "use client";
 
+import type { ComponentProps } from "react";
 import { AlertTriangleIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { field, inkButton, mono, paper } from "./surfaces";
@@ -13,7 +14,18 @@ export function EditMessage({
   onCancel,
   onStartEdit,
   className,
-}: {
+  ...props
+}: Omit<
+  ComponentProps<"div">,
+  | "children"
+  | "value"
+  | "discardedReplies"
+  | "editing"
+  | "onValueChange"
+  | "onSave"
+  | "onCancel"
+  | "onStartEdit"
+> & {
   value: string;
   discardedReplies: number;
   editing: boolean;
@@ -21,11 +33,14 @@ export function EditMessage({
   onSave?: () => void;
   onCancel?: () => void;
   onStartEdit?: () => void;
-  className?: string;
 }) {
   if (!editing) {
     return (
-      <div className={cn("flex w-full max-w-sm justify-end", className)}>
+      <div
+        data-slot="edit-message"
+        className={cn("flex w-full max-w-sm justify-end", className)}
+        {...props}
+      >
         <button
           type="button"
           onClick={onStartEdit}
@@ -42,11 +57,14 @@ export function EditMessage({
 
   return (
     <div
+      data-slot="edit-message"
       className={cn(
         paper,
         "flex w-full max-w-sm flex-col gap-3 rounded-[20px] p-3.5",
         className,
       )}
+
+      {...props}
     >
       <textarea
         value={value}
