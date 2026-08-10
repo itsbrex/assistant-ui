@@ -7,13 +7,17 @@ import {
   Suggestions,
   Tools,
 } from "@assistant-ui/react";
-import { useChatRuntime } from "@assistant-ui/react-ai-sdk";
+import {
+  AssistantChatTransport,
+  useChatRuntime,
+} from "@assistant-ui/react-ai-sdk";
 import { lastAssistantMessageIsCompleteWithToolCalls } from "ai";
 import { ExampleNav } from "@/components/example-nav";
-import toolkit from "./toolkit";
+import toolkit from "./present-toolkit";
 
 export default function Home() {
   const runtime = useChatRuntime({
+    transport: new AssistantChatTransport({ api: "/api/present" }),
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
   });
 
@@ -21,26 +25,28 @@ export default function Home() {
     tools: Tools({ toolkit }),
     suggestions: Suggestions([
       {
-        title: "Show a bar chart",
-        label: "of quarterly revenue",
+        title: "Sales dashboard",
+        label: "for last quarter",
         prompt:
-          "Create a bar chart showing quarterly revenue: Q1 $45k, Q2 $52k, Q3 $61k, Q4 $58k",
+          "Show me a sales dashboard for Q2 2026: revenue, orders, and conversion rate, with monthly revenue broken out.",
       },
       {
-        title: "Pick a date",
-        label: "for a meeting",
-        prompt: "I need to schedule a meeting. Ask me to pick a date.",
-      },
-      {
-        title: "Collect my contact info",
-        label: "name, email, phone",
+        title: "Product analytics",
+        label: "activation and retention",
         prompt:
-          "I want to sign up for the newsletter. Ask for my name, email, and phone number.",
+          "How did activation and retention trend over the last six weeks? Include the weekly numbers.",
       },
       {
-        title: "Show me on the map",
-        label: "the Eiffel Tower",
-        prompt: "Show me the Eiffel Tower on a map",
+        title: "Support overview",
+        label: "tickets and response time",
+        prompt:
+          "Give me a support overview: open tickets by priority, median first response time, and how the priorities compare.",
+      },
+      {
+        title: "Channel performance",
+        label: "compare acquisition sources",
+        prompt:
+          "Compare our acquisition channels on spend, conversions, and cost per acquisition.",
       },
     ]),
   });
