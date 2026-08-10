@@ -412,6 +412,53 @@ type ComposerClientResourceProps = {
   attachmentAdapter?: AttachmentAdapter | undefined;
 };
 
+type AttachmentAddOperation = {
+  cancelled: boolean;
+  attachmentIds: Set<string>;
+};
+
+class AttachmentAddOperations {
+  private readonly operations = new Set<AttachmentAddOperation>();
+
+  start() {
+    const operation: AttachmentAddOperation = {
+      cancelled: false,
+      attachmentIds: new Set(),
+    };
+    this.operations.add(operation);
+    return operation;
+  }
+
+  accept(operation: AttachmentAddOperation, attachmentId: string) {
+    if (operation.cancelled) return false;
+    operation.attachmentIds.add(attachmentId);
+    return true;
+  }
+
+  finish(operation: AttachmentAddOperation) {
+    this.operations.delete(operation);
+  }
+
+  isCancelled(operation: AttachmentAddOperation) {
+    return operation.cancelled;
+  }
+
+  cancel(attachmentId: string) {
+    for (const operation of [...this.operations]) {
+      if (!operation.attachmentIds.has(attachmentId)) continue;
+      operation.cancelled = true;
+      this.operations.delete(operation);
+    }
+  }
+
+  cancelAll() {
+    for (const operation of this.operations) {
+      operation.cancelled = true;
+    }
+    this.operations.clear();
+  }
+}
+
 const useQueueItemClient = ({
   item,
   onMove,
@@ -433,11 +480,11 @@ const QueueItemClient = resource(useQueueItemClient);
 
 const drainAdapterAdd = async (
   result: ReturnType<AttachmentAdapter["add"]>,
-  upsert: (attachment: Attachment) => void,
+  upsert: (attachment: Attachment) => boolean,
 ) => {
   if (Symbol.asyncIterator in result) {
     for await (const attachment of result) {
-      upsert(attachment);
+      if (!upsert(attachment)) break;
     }
   } else {
     upsert(await result);
@@ -486,6 +533,10 @@ const useComposerClientResource = ({
   const [quote, setQuote, quoteRef] = useLiveState<
     { readonly text: string; readonly messageId: string } | undefined
   >(undefined);
+  const attachmentAddOperations = useMemo(
+    () => new AttachmentAddOperations(),
+    [],
+  );
 
   const updateFromMessage = () => {
     if (!message) return;
@@ -505,6 +556,7 @@ const useComposerClientResource = ({
         AttachmentResource({
           attachment,
           onRemove: async () => {
+            attachmentAddOperations.cancel(attachment.id);
             await attachmentAdapter?.remove(attachment);
             setAttachments((prev) =>
               prev.filter((a) => a.id !== attachment.id),
@@ -609,10 +661,22 @@ const useComposerClientResource = ({
           );
       }
       if (!isCreateAttachment(fileOrAttachment) && attachmentAdapter) {
-        await drainAdapterAdd(
-          attachmentAdapter.add({ file: fileOrAttachment }),
-          upsertAttachment,
-        );
+        const operation = attachmentAddOperations.start();
+        try {
+          await drainAdapterAdd(
+            attachmentAdapter.add({ file: fileOrAttachment }),
+            (attachment) => {
+              if (!attachmentAddOperations.accept(operation, attachment.id))
+                return false;
+              upsertAttachment(attachment);
+              return true;
+            },
+          );
+          attachmentAddOperations.finish(operation);
+        } catch (error) {
+          attachmentAddOperations.finish(operation);
+          if (!attachmentAddOperations.isCancelled(operation)) throw error;
+        }
       } else if (!isCreateAttachment(fileOrAttachment)) {
         const newAttachment: Attachment = {
           id: Math.random().toString(36).substring(7),
@@ -637,6 +701,7 @@ const useComposerClientResource = ({
       }
     },
     clearAttachments: async () => {
+      attachmentAddOperations.cancelAll();
       const removed = attachmentsRef.current;
       setAttachments([]);
       await removePendingAttachments(removed);
@@ -648,6 +713,7 @@ const useComposerClientResource = ({
       return attachmentClients.get(selector);
     },
     reset: async () => {
+      attachmentAddOperations.cancelAll();
       const removed = attachmentsRef.current;
       setText("");
       setRole("user");
@@ -664,6 +730,7 @@ const useComposerClientResource = ({
       if (!isEditingRef.current) throw new Error("Composer is not available");
       if (isEmpty || isSendDisabled) return;
 
+      attachmentAddOperations.cancelAll();
       setText("");
       setAttachments([]);
       setQuote(undefined);
