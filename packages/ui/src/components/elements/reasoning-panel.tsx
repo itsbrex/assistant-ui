@@ -85,11 +85,11 @@ export function ReasoningPanel({
                       : "bg-foreground/20",
                   )}
                 />
-                <span className="flex flex-col">
+                <span className="flex min-w-0 flex-1 flex-col">
                   <p className="text-foreground/90 text-[13.5px] font-medium">
                     {step.title}
                   </p>
-                  <p className="text-foreground/50 mt-0.5 text-[13px] leading-relaxed">
+                  <p className="text-foreground/50 mt-0.5 text-[13px] leading-relaxed break-words">
                     {step.body}
                   </p>
                 </span>
