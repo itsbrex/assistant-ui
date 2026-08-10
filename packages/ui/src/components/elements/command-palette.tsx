@@ -1,6 +1,6 @@
 "use client";
 
-import type { ComponentProps } from "react";
+import { useEffect, useId, type ComponentProps } from "react";
 import { SearchIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { field, floating, mono } from "./surfaces";
@@ -38,6 +38,8 @@ export function CommandPalette({
   onActiveChange?: (id: string) => void;
   onRun?: (id: string) => void;
 }) {
+  const listId = useId();
+  const optionId = (id: string) => `${listId}-${id}`;
   const matches = commands.filter((command) =>
     command.label.toLowerCase().includes(query.toLowerCase()),
   );
@@ -55,6 +57,14 @@ export function CommandPalette({
     const next = ordered[(from + delta + ordered.length) % ordered.length];
     if (next) onActiveChange?.(next.id);
   };
+
+  // aria-activedescendant moves the highlight without moving focus, and only
+  // focus scrolls; the list is short enough to walk the active row out of view.
+  useEffect(() => {
+    document
+      .getElementById(optionId(activeId))
+      ?.scrollIntoView({ block: "nearest" });
+  }, [activeId, listId]);
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.nativeEvent.isComposing) return;
@@ -90,6 +100,15 @@ export function CommandPalette({
           onKeyDown={onKeyDown}
           placeholder="Type a command"
           aria-label="Type a command"
+          role="combobox"
+          aria-expanded={ordered.length > 0}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            ordered.some((command) => command.id === activeId)
+              ? optionId(activeId)
+              : undefined
+          }
           className="text-foreground/85 placeholder:text-foreground/30 min-w-0 flex-1 bg-transparent text-[13.5px] outline-none"
         />
         <span
@@ -103,10 +122,23 @@ export function CommandPalette({
         </span>
       </div>
 
-      <div className="border-foreground/[0.07] flex max-h-72 flex-col overflow-y-auto border-t p-1.5">
+      <div
+        id={listId}
+        role="listbox"
+        aria-label="Commands"
+        className="border-foreground/[0.07] flex max-h-72 flex-col overflow-y-auto border-t p-1.5"
+      >
         {groups.map((group) => (
-          <div key={group} className="flex flex-col">
-            <span className={cn(mono, "text-foreground/25 px-2 pt-2 pb-1")}>
+          <div
+            key={group}
+            role="group"
+            aria-label={group}
+            className="flex flex-col"
+          >
+            <span
+              aria-hidden
+              className={cn(mono, "text-foreground/25 px-2 pt-2 pb-1")}
+            >
               {group}
             </span>
             {matches
@@ -114,7 +146,12 @@ export function CommandPalette({
               .map((command) => (
                 <button
                   key={command.id}
+                  id={optionId(command.id)}
                   type="button"
+                  role="option"
+                  tabIndex={-1}
+                  aria-selected={command.id === activeId}
+                  onMouseDown={(event) => event.preventDefault()}
                   onClick={() => onRun?.(command.id)}
                   className={cn(
                     "flex items-center gap-2 rounded-xl px-2 py-1.5 text-start transition-colors",
@@ -144,12 +181,14 @@ export function CommandPalette({
               ))}
           </div>
         ))}
-        {matches.length === 0 && (
-          <span className="text-foreground/30 px-2 py-4 text-center text-xs break-words">
+      </div>
+      {matches.length === 0 && (
+        <div className="border-foreground/[0.07] border-t p-1.5">
+          <span className="text-foreground/30 block px-2 py-4 text-center text-xs break-words">
             No command matches “{query}”
           </span>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
