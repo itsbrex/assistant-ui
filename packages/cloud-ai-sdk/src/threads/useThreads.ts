@@ -62,8 +62,14 @@ export function useThreads(options: UseThreadsOptions): UseThreadsResult {
 
   const activeScopeRef = useRef<typeof scope | null>(scope);
   useLayoutEffect(() => {
-    activeScopeRef.current = scope.cloud === cloud ? scope : null;
-  }, [cloud, scope]);
+    const isActiveScope = scope.cloud === cloud;
+    activeScopeRef.current = isActiveScope ? scope : null;
+    if (!isActiveScope) {
+      setThreads([]);
+      setError(null);
+      setIsLoading(enabled);
+    }
+  }, [cloud, enabled, scope]);
   const isCurrentCloud = useCallback(
     () => scope.cloud === cloud && activeScopeRef.current === scope,
     [cloud, scope],
@@ -71,7 +77,7 @@ export function useThreads(options: UseThreadsOptions): UseThreadsResult {
 
   if (enabled !== previousEnabled) {
     setPreviousEnabled(enabled);
-    if (enabled) setIsLoading(true);
+    setIsLoading(enabled);
   }
 
   const mountedRef = useRef(true);
