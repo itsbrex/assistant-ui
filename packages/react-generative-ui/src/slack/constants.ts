@@ -11,8 +11,16 @@ import type {
   SlackTextObject,
 } from "./types";
 
-/** The maximum normalized traversal depth. */
+/** The maximum traversal depth, counted in visited values, not tree levels. */
 export const MAX_TRAVERSAL_DEPTH = 64;
+
+/**
+ * The element-nesting ceiling a caller observes. `boundNode` visits an element
+ * and its `children` array separately, so one level of nesting spends two of
+ * {@link MAX_TRAVERSAL_DEPTH}; it runs before the conversion walk and is never
+ * the looser of the two. A root array costs one more level than a root object.
+ */
+export const MAX_ELEMENT_DEPTH = MAX_TRAVERSAL_DEPTH / 2;
 
 /**
  * The maximum number of entries kept at any single level (root, or a
