@@ -1013,7 +1013,15 @@ const useExternalThread = ({
   );
 
   const handleCancelRun = () => {
-    onCancel?.();
+    // Nothing is aborted without a handler, so pausing the queue would hold
+    // the pending items against a run that keeps going.
+    if (!onCancel) return;
+
+    // Before the run is aborted, so the settle it produces keeps the pending
+    // items instead of dispatching the next one at the moment the user
+    // stopped.
+    queue?.__internal_notifyCancelled?.();
+    onCancel();
   };
 
   const handleSendNew = (message: AppendMessage) => {
