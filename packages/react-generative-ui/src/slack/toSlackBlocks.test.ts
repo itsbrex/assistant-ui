@@ -328,6 +328,21 @@ describe("toSlackBlocks", () => {
   });
 
   describe("Select", () => {
+    it("reports options dropped for want of a string label and value", () => {
+      const { blocks, warnings } = toSlackBlocks({
+        $type: "Select",
+        options: [{ label: "ok", value: "a" }, { label: "bad" }, "nope"],
+      });
+      const select = (blocks[0] as SlackActionsBlock)
+        .elements[0] as SlackStaticSelectElement;
+      expect(select.options).toHaveLength(1);
+      expect(warnings).toContainEqual({
+        code: "dropped",
+        component: "Select",
+        detail: "2 options were dropped for want of a string label and value.",
+      });
+    });
+
     it("converts options and placeholder", () => {
       const { blocks } = toSlackBlocks({
         $type: "Select",
@@ -579,6 +594,18 @@ describe("toSlackBlocks", () => {
   });
 
   describe("RadioGroup", () => {
+    it("names RadioGroup when the same option loss happens there", () => {
+      const { warnings } = toSlackBlocks({
+        $type: "RadioGroup",
+        options: [{ label: "ok", value: "a" }, { label: "bad" }],
+      });
+      expect(warnings).toContainEqual({
+        code: "dropped",
+        component: "RadioGroup",
+        detail: "1 option was dropped for want of a string label and value.",
+      });
+    });
+
     const options = [
       { label: "Small", value: "s" },
       { label: "Large", value: "l" },
@@ -1118,7 +1145,7 @@ describe("toSlackBlocks", () => {
       expect(warnings).toContainEqual({
         code: "dropped",
         component: "Carousel",
-        detail: "A non-card child was dropped.",
+        detail: "1 non-card child was dropped.",
       });
     });
 
@@ -1360,6 +1387,27 @@ describe("toSlackBlocks", () => {
   });
 
   describe("Table", () => {
+    it.each([["A"], [{}], [{ label: 42 }]])(
+      "keeps an unlabeled column's position in the header and reports it: %j",
+      (column) => {
+        const { blocks, warnings } = toSlackBlocks({
+          $type: "Table",
+          columns: [column, { label: "B" }],
+          rows: [["1", "2"]],
+        });
+        const table = blocks[0] as SlackDataTableBlock;
+        expect(table.rows[0]).toEqual([
+          { type: "raw_text", text: "" },
+          { type: "raw_text", text: "B" },
+        ]);
+        expect(warnings).toContainEqual({
+          code: "dropped",
+          component: "Table",
+          detail: "1 column header was left blank for want of a string label.",
+        });
+      },
+    );
+
     it("converts columns and rows into a header-first rows array with typed cells", () => {
       const { blocks } = toSlackBlocks({
         $type: "Table",
@@ -1611,6 +1659,65 @@ describe("toSlackBlocks", () => {
   });
 
   describe("ListView and ListViewItem", () => {
+    it("forwards a discarded child's own dropped warning and counts it", () => {
+      const { warnings } = toSlackBlocks({
+        $type: "ListView",
+        children: [
+          { $type: "Mystery" },
+          { $type: "ListViewItem", children: { $type: "Text", value: "row" } },
+        ],
+      });
+      expect(warnings).toContainEqual({
+        code: "dropped",
+        component: "Mystery",
+        detail: "Unknown component type was dropped.",
+      });
+      expect(warnings).toContainEqual({
+        code: "dropped",
+        component: "ListView",
+        detail: "1 non-item child was dropped.",
+      });
+    });
+
+    it("does not let a discarded child spend the markdown budget", () => {
+      const { blocks, warnings } = toSlackBlocks([
+        {
+          $type: "ListView",
+          children: [
+            { $type: "Markdown", value: "x".repeat(MARKDOWN_TEXT_BUDGET) },
+            {
+              $type: "ListViewItem",
+              children: { $type: "Text", value: "row" },
+            },
+          ],
+        },
+        { $type: "Markdown", value: "**real**" },
+      ]);
+      expect(blocks[blocks.length - 1]).toEqual({
+        type: "markdown",
+        text: "**real**",
+      });
+      expect(warnings.some((warning) => warning.component === "Markdown")).toBe(
+        false,
+      );
+    });
+
+    it("reports a non-item child it filters out", () => {
+      const { blocks, warnings } = toSlackBlocks({
+        $type: "ListView",
+        children: [
+          { $type: "Text", value: "stray" },
+          { $type: "ListViewItem", children: { $type: "Text", value: "Kept" } },
+        ],
+      });
+      expect(blocks).toHaveLength(1);
+      expect(warnings).toContainEqual({
+        code: "dropped",
+        component: "ListView",
+        detail: "1 non-item child was dropped.",
+      });
+    });
+
     it("renders each item as a section, separated by dividers", () => {
       const { blocks } = toSlackBlocks({
         $type: "ListView",

@@ -191,6 +191,15 @@ const choicesFrom = (
     const choice = toChoice(item);
     if (choice !== undefined) choices.push(choice);
   }
+  const dropped = items.length - choices.length;
+  if (dropped > 0) {
+    warn(
+      context,
+      "dropped",
+      component,
+      `${dropped} ${dropped === 1 ? "option was" : "options were"} dropped for want of a string value.`,
+    );
+  }
   return choices;
 };
 
@@ -302,6 +311,17 @@ function convertTable(
     );
   }
 
+  const unlabeled = rawColumns.filter(
+    (column) => !isRecord(column) || typeof column["label"] !== "string",
+  ).length;
+  if (unlabeled > 0) {
+    warn(
+      context,
+      "dropped",
+      "Table",
+      `${unlabeled} column ${unlabeled === 1 ? "header was" : "headers were"} left blank for want of a string label.`,
+    );
+  }
   const hasColumns = rawColumns.length > 0;
   const columns: TeamsTableColumnDefinition[] = rawColumns.map(() => ({
     width: 1 as const,
@@ -348,6 +368,29 @@ function convertListViewItem(
     ...(selectAction !== undefined ? { selectAction } : {}),
   };
 }
+
+/**
+ * Converts a child whose output is thrown away, and reports whether anything
+ * was lost with it. A scratch context keeps the ids it claims out of the card,
+ * where they would rename a control that survives; only its `dropped` warnings
+ * are forwarded, because those describe the tree the caller wrote, while a
+ * clamp or a rename would describe content never delivered.
+ */
+export const discardedChild = (
+  child: NormalizedUINode,
+  context: ConversionContext,
+  depth: number,
+): boolean => {
+  const scratch: ConversionContext = {
+    ...context,
+    warnings: [],
+    usedInputIds: new Set(context.usedInputIds),
+  };
+  const produced = convertSequence(child, scratch, depth).length > 0;
+  const lost = scratch.warnings.filter((warning) => warning.code === "dropped");
+  context.warnings.push(...lost);
+  return produced || lost.length > 0;
+};
 
 export function convertElement(
   element: NormalizedUIElement,
@@ -550,13 +593,21 @@ export function convertElement(
     }
     case "ListView": {
       const containers: TeamsContainer[] = [];
+      let discarded = 0;
       for (const child of normalizedList(element.children)) {
-        if (!isElement(child)) continue;
-        if (child.type === "ListViewItem") {
+        if (isElement(child) && child.type === "ListViewItem") {
           containers.push(convertListViewItem(child, context, depth + 1));
-        } else {
-          convertElement(child, context, depth + 1);
+          continue;
         }
+        if (discardedChild(child, context, depth + 1)) discarded += 1;
+      }
+      if (discarded > 0) {
+        warn(
+          context,
+          "dropped",
+          "ListView",
+          `${discarded} non-item ${discarded === 1 ? "child was" : "children were"} dropped.`,
+        );
       }
       return containers.map((container, index) =>
         index > 0 ? { ...container, separator: true } : container,
@@ -586,10 +637,23 @@ export function convertElement(
         "Carousel",
         "A carousel was rendered as sequential cards because it is not at the root.",
       );
-      const cards = normalizedList(element.children).filter(
-        (child): child is NormalizedUIElement =>
-          isElement(child) && child.type === "Card",
-      );
+      const cards: NormalizedUIElement[] = [];
+      let droppedCards = 0;
+      for (const child of normalizedList(element.children)) {
+        if (isElement(child) && child.type === "Card") {
+          cards.push(child);
+          continue;
+        }
+        if (discardedChild(child, context, depth + 1)) droppedCards += 1;
+      }
+      if (droppedCards > 0) {
+        warn(
+          context,
+          "dropped",
+          "Carousel",
+          `${droppedCards} non-card ${droppedCards === 1 ? "child was" : "children were"} dropped.`,
+        );
+      }
       return cards.flatMap((card) => convertElement(card, context, depth + 1));
     }
     case "Chart":

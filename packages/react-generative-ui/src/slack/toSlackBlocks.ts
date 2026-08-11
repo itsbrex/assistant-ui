@@ -202,6 +202,22 @@ const optionFrom = (
   };
 };
 
+const warnDroppedOptions = (
+  kept: number,
+  taken: number,
+  component: string,
+  context: ConversionContext,
+) => {
+  const dropped = taken - kept;
+  if (dropped === 0) return;
+  warn(
+    context,
+    "dropped",
+    component,
+    `${dropped} ${dropped === 1 ? "option was" : "options were"} dropped for want of a string label and value.`,
+  );
+};
+
 const toActionElement = (
   element: NormalizedUIElement,
   context: ConversionContext,
@@ -228,10 +244,16 @@ const toActionElement = (
           `options were clamped to ${SELECT_OPTION_CAP} entries.`,
         );
       }
-      const options = rawOptions
-        .slice(0, SELECT_OPTION_CAP)
+      const takenOptions = rawOptions.slice(0, SELECT_OPTION_CAP);
+      const options = takenOptions
         .map((option) => optionFrom(option, "Select", context))
         .filter((option): option is SlackOption => option !== undefined);
+      warnDroppedOptions(
+        options.length,
+        takenOptions.length,
+        "Select",
+        context,
+      );
       const placeholder = clampText(
         asString(props["placeholder"]),
         PLACEHOLDER_TEXT_CAP,
@@ -297,10 +319,16 @@ const toActionElement = (
           `options were clamped to ${RADIO_OPTION_CAP} entries.`,
         );
       }
-      const options = rawOptions
-        .slice(0, RADIO_OPTION_CAP)
+      const takenOptions = rawOptions.slice(0, RADIO_OPTION_CAP);
+      const options = takenOptions
         .map((option) => optionFrom(option, "RadioGroup", context))
         .filter((option): option is SlackOption => option !== undefined);
+      warnDroppedOptions(
+        options.length,
+        takenOptions.length,
+        "RadioGroup",
+        context,
+      );
       const selectedValue =
         typeof props["value"] === "string"
           ? props["value"]
@@ -699,15 +727,47 @@ const convertListItem = (
   };
 };
 
+/**
+ * Converts a child whose output is thrown away, and reports whether anything
+ * was lost with it. A scratch context keeps the throwaway out of the shared
+ * markdown and data-table budgets that surviving blocks still need; only its
+ * `dropped` warnings are forwarded, because those describe the tree the caller
+ * wrote, while a clamp or a fallback would describe content never delivered.
+ */
+const discardedChild = (
+  child: NormalizedUINode,
+  context: ConversionContext,
+  depth: number,
+): boolean => {
+  const scratch: ConversionContext = { ...context, warnings: [] };
+  const produced = convertSequence(child, scratch, depth).length > 0;
+  const lost = scratch.warnings.filter((warning) => warning.code === "dropped");
+  context.warnings.push(...lost);
+  return produced || lost.length > 0;
+};
+
 const convertListView = (
   element: NormalizedUIElement,
   context: ConversionContext,
   depth: number,
 ): SlackBlock[] => {
-  const items = normalizedList(element.children).filter(
-    (child): child is NormalizedUIElement =>
-      isElement(child) && child.type === "ListViewItem",
-  );
+  const items: NormalizedUIElement[] = [];
+  let discarded = 0;
+  for (const child of normalizedList(element.children)) {
+    if (isElement(child) && child.type === "ListViewItem") {
+      items.push(child);
+      continue;
+    }
+    if (discardedChild(child, context, depth + 1)) discarded += 1;
+  }
+  if (discarded > 0) {
+    warn(
+      context,
+      "dropped",
+      "ListView",
+      `${discarded} non-item ${discarded === 1 ? "child was" : "children were"} dropped.`,
+    );
+  }
   return items.flatMap((item, index) => [
     ...(index > 0 ? [{ type: "divider" as const }] : []),
     convertListItem(item, context, depth + 1),
@@ -720,12 +780,21 @@ const convertCarousel = (
   depth: number,
 ): SlackBlock[] => {
   const cardChildren: NormalizedUIElement[] = [];
+  let droppedCards = 0;
   for (const child of normalizedList(element.children)) {
     if (isElement(child) && child.type === "Card") {
       cardChildren.push(child);
-    } else {
-      warn(context, "dropped", "Carousel", "A non-card child was dropped.");
+      continue;
     }
+    if (discardedChild(child, context, depth + 1)) droppedCards += 1;
+  }
+  if (droppedCards > 0) {
+    warn(
+      context,
+      "dropped",
+      "Carousel",
+      `${droppedCards} non-card ${droppedCards === 1 ? "child was" : "children were"} dropped.`,
+    );
   }
   if (cardChildren.length > CAROUSEL_CARD_CAP) {
     warn(
@@ -791,13 +860,22 @@ const convertTable = (
     );
   }
 
-  const columnHeaderRow: SlackDataTableCell[] = rawColumns
-    .slice(0, DATA_TABLE_COLUMN_CAP)
-    .filter(isRecord)
-    .map((column) => ({
-      type: "raw_text" as const,
-      text: asString(column["label"]),
-    }));
+  const takenColumns = rawColumns.slice(0, DATA_TABLE_COLUMN_CAP);
+  const unlabeled = takenColumns.filter(
+    (column) => !isRecord(column) || typeof column["label"] !== "string",
+  ).length;
+  if (unlabeled > 0) {
+    warn(
+      context,
+      "dropped",
+      "Table",
+      `${unlabeled} column ${unlabeled === 1 ? "header was" : "headers were"} left blank for want of a string label.`,
+    );
+  }
+  const columnHeaderRow: SlackDataTableCell[] = takenColumns.map((column) => ({
+    type: "raw_text" as const,
+    text: isRecord(column) ? asString(column["label"]) : "",
+  }));
   const dataRows: SlackDataTableCell[][] = rawRows
     .slice(0, DATA_TABLE_ROW_CAP)
     .map((row) =>
