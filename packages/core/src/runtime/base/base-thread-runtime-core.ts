@@ -126,23 +126,25 @@ export abstract class BaseThreadRuntimeCore implements ThreadRuntimeCore {
 
   /**
    * Stamps provider-contributed composer metadata onto an outgoing message.
-   * Runs on every append rather than in the composer, so a programmatic send
-   * (a suggestion, a direct `append`) carries the same interactable state
-   * snapshots a typed send does. `parentId` selects the branch prefix the
-   * model has already seen: the thread tail for an ordinary send, the edited
-   * message's parent for an edit.
+   * Called at dispatch rather than in the composer, so programmatic sends are
+   * covered too, and exactly once per message: a queued send is stamped when
+   * it leaves the lane, never when it enters.
    *
    * Only user messages are stamped, matching the readers: both the version
-   * fold and the model injection skip every other role, so a stamp elsewhere
-   * would only be persisted, never read.
+   * fold and the model injection skip every other role.
+   *
+   * @param anchorId Message the gated branch prefix ends at. A queued send
+   * passes the current tail, having waited through a run that grew the prefix
+   * past the parent it was created with.
    */
-  protected enrichAppendMetadata(message: AppendMessage): AppendMessage {
+  protected enrichAppendMetadata(
+    message: AppendMessage,
+    anchorId: string | null = message.parentId,
+  ): AppendMessage {
     if (message.role !== "user") return message;
     const messages = this.messages;
     const parentIndex =
-      message.parentId === null
-        ? -1
-        : messages.findIndex((m) => m.id === message.parentId);
+      anchorId === null ? -1 : messages.findIndex((m) => m.id === anchorId);
     const composerMetadata = gateInteractableComposerMetadata(
       this.getModelContext().unstable_composerMetadata,
       messages.slice(0, parentIndex + 1),

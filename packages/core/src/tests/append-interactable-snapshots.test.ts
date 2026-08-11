@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { ExternalStoreRuntimeCore } from "../runtimes/external-store/external-store-runtime-core";
 import { LocalRuntimeCore } from "../runtimes/local/local-runtime-core";
+import { createMessageQueue } from "../runtime/queue/message-queue";
+import { getThreadMessageText } from "../utils/text";
 import type { ChatModelAdapter } from "../runtime/utils/chat-model-adapter";
 import type { AppendMessage, ThreadMessage } from "../types/message";
 
@@ -94,7 +96,6 @@ describe("interactable snapshots on the append seam", () => {
     const { thread, onNew } = externalThread({
       composerMetadata: live({ tasks: [] }),
     });
-    // No composer involved: this is what useSuggestionTrigger issues.
     await thread.append(userMessage("Add 3 tasks for a grocery run", null));
     expect(appendedSnapshots(onNew)).toEqual([
       { id: "n1", name: "note", state: { tasks: [] } },
@@ -159,6 +160,191 @@ describe("interactable snapshots on the append seam", () => {
     await thread.append(userMessage("hello", null));
     expect(thread.messages[0]!.metadata.custom?.interactables).toEqual([
       { id: "n1", name: "note", state: { v: 1 } },
+    ]);
+  });
+});
+
+describe("queued sends gate at dispatch, not at enqueue", () => {
+  const queuedExternalThread = () => {
+    const run = vi.fn();
+    const onNew = vi.fn(async () => {});
+    const queue = createMessageQueue({ run });
+    let composerMetadata: Record<string, unknown> = live({ v: 1 });
+    const store = (messages: ThreadMessage[]) => ({
+      messages,
+      onNew,
+      queue: queue.adapter,
+    });
+    const core = new ExternalStoreRuntimeCore(store([]));
+    core.registerModelContextProvider({
+      getModelContext: () => ({ unstable_composerMetadata: composerMetadata }),
+    });
+    return {
+      thread: core.threads.getMainThreadRuntimeCore(),
+      queue,
+      run,
+      advanceRecord: (messages: ThreadMessage[], live: unknown) => {
+        composerMetadata = live as Record<string, unknown>;
+        core.setAdapter(store(messages));
+      },
+    };
+  };
+
+  const dispatched = (run: ReturnType<typeof vi.fn>) =>
+    (run.mock.calls[0]![0] as AppendMessage).metadata?.custom?.interactables;
+
+  it("drops the enqueue-time stamp once the run has told the model that state", async () => {
+    const t = queuedExternalThread();
+    t.queue.notifyBusy();
+    await t.thread.append(userMessage("queued", null));
+    expect(t.run).not.toHaveBeenCalled();
+
+    // the run moved the record to v:2 and the live state matches it
+    t.advanceRecord([snapshotMessage("msg-1", { v: 2 })], live({ v: 2 }));
+    t.queue.notifyIdle();
+
+    expect(t.run).toHaveBeenCalledTimes(1);
+    expect(dispatched(t.run)).toBeUndefined();
+  });
+
+  it("stamps the state as of the flush when it still diverges", async () => {
+    const t = queuedExternalThread();
+    t.queue.notifyBusy();
+    await t.thread.append(userMessage("queued", null));
+
+    // the run moved the record to v:2 while the user edited on to v:3
+    t.advanceRecord([snapshotMessage("msg-1", { v: 2 })], live({ v: 3 }));
+    t.queue.notifyIdle();
+
+    expect(dispatched(t.run)).toEqual([
+      { id: "n1", name: "note", state: { v: 3 } },
+    ]);
+  });
+
+  // interrupt dispatches synchronously inside `append`, so nothing can go
+  // stale in between; what matters is that this second dispatch point stamps
+  // at all, the way advance does.
+  it("stamps on the interrupt path a mid-run steer takes", async () => {
+    const run = vi.fn();
+    const cancel = vi.fn();
+    const onNew = vi.fn(async () => {});
+    const queue = createMessageQueue({ run, cancel });
+    let composerMetadata: Record<string, unknown> = live({ v: 1 });
+    const store = (messages: ThreadMessage[]) => ({
+      messages,
+      onNew,
+      queue: queue.adapter,
+      isRunning: true,
+    });
+    const core = new ExternalStoreRuntimeCore(store([]));
+    core.registerModelContextProvider({
+      getModelContext: () => ({ unstable_composerMetadata: composerMetadata }),
+    });
+    const thread = core.threads.getMainThreadRuntimeCore();
+
+    queue.notifyBusy();
+    composerMetadata = live({ v: 2 });
+    // isRunning routes this to the steer lane, and a cancel-capable driver
+    // makes that an interrupt rather than a buffered enqueue
+    await thread.append(
+      userMessage("steered", thread.messages.at(-1)?.id ?? null),
+    );
+
+    expect(cancel).toHaveBeenCalled();
+    expect(dispatched(run)).toEqual([
+      { id: "n1", name: "note", state: { v: 2 } },
+    ]);
+  });
+
+  it("re-points a flushed message at the tail it was gated against", async () => {
+    const t = queuedExternalThread();
+    t.queue.notifyBusy();
+    await t.thread.append(userMessage("queued", null));
+
+    t.advanceRecord([snapshotMessage("msg-1", { v: 2 })], live({ v: 3 }));
+    t.queue.notifyIdle();
+
+    // routing and gating have to name the same point, or the branch the
+    // message lands on is not the one its snapshot was computed against
+    expect((t.run.mock.calls[0]![0] as AppendMessage).parentId).toBe("msg-1");
+  });
+
+  it("leaves a hand-rolled adapter stamping at enqueue", async () => {
+    const enqueue = vi.fn();
+    const onNew = vi.fn(async () => {});
+    const core = new ExternalStoreRuntimeCore({
+      messages: [],
+      onNew,
+      // no __internal_setDispatchTransform: nothing re-gates on the way out,
+      // so the runtime has to stamp before handing the message over
+      queue: {
+        items: [],
+        steerItems: [],
+        enqueue,
+        steer: vi.fn(),
+        move: vi.fn(),
+        edit: vi.fn(),
+        remove: vi.fn(),
+      },
+    });
+    core.registerModelContextProvider({
+      getModelContext: () => ({ unstable_composerMetadata: live({ v: 1 }) }),
+    });
+    const thread = core.threads.getMainThreadRuntimeCore();
+
+    await thread.append(userMessage("queued", null));
+    expect(dispatched(enqueue)).toEqual([
+      { id: "n1", name: "note", state: { v: 1 } },
+    ]);
+  });
+
+  it("gates a queued local send against the tail it flushes onto", async () => {
+    let composerMetadata: Record<string, unknown> = live({ v: 1 });
+    let releaseFirstRun!: () => void;
+    const firstRunGate = new Promise<void>((resolve) => {
+      releaseFirstRun = resolve;
+    });
+    let runs = 0;
+    const chatModel: ChatModelAdapter = {
+      run: async function* () {
+        if (runs++ === 0) await firstRunGate;
+        yield { content: [{ type: "text" as const, text: "ok" }] };
+      },
+    };
+    const core = new LocalRuntimeCore(
+      { adapters: { chatModel }, unstable_enableMessageQueue: true },
+      undefined,
+    );
+    core.registerModelContextProvider({
+      getModelContext: () => ({ unstable_composerMetadata: composerMetadata }),
+    });
+    const thread = core.threads.getMainThreadRuntimeCore();
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+    void thread.append(userMessage("first", null));
+    await settle();
+
+    // the first run is still open, so this one buffers with the live state at v:1
+    void thread.append(
+      userMessage("second", thread.messages.at(-1)?.id ?? null),
+    );
+    await settle();
+    expect(
+      thread.messages.some(
+        (m) => m.role === "user" && getThreadMessageText(m) === "second",
+      ),
+    ).toBe(false);
+
+    composerMetadata = live({ v: 2 });
+    releaseFirstRun();
+    await settle();
+    await settle();
+
+    const second = thread.messages.find(
+      (m) => m.role === "user" && getThreadMessageText(m) === "second",
+    );
+    expect(second!.metadata.custom?.interactables).toEqual([
+      { id: "n1", name: "note", state: { v: 2 } },
     ]);
   });
 });
