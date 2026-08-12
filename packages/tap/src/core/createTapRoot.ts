@@ -11,6 +11,7 @@ import { createResourceFiberRoot } from "./helpers/root";
 
 export const createTapRoot = <R>(
   render: () => R,
+  options?: { mountOnSubscribe?: boolean },
 ): useTapRoot.Root<R> & { unmount: () => void } => {
   const pendingEvaluates: (() => boolean)[] = [];
   const scheduler = new UpdateScheduler(() => {
@@ -32,19 +33,61 @@ export const createTapRoot = <R>(
   );
 
   // In strict mode, render twice to detect side effects
-  if (isDevelopment && fiber.devStrictMode === "root") {
-    void renderResourceFiber(fiber, [render]);
+  const renderFiber = () => {
+    if (isDevelopment && fiber.devStrictMode) {
+      void renderResourceFiber(fiber, [render]);
+    }
+    return renderResourceFiber(fiber, [render]) as useTapRoot.Root<R>;
+  };
+
+  let root: useTapRoot.Root<R> | undefined;
+  const ensureRoot = () => (root ??= renderFiber());
+
+  if (!options?.mountOnSubscribe) {
+    const root = ensureRoot();
+    flushTapSync(() => commitResourceFiber(fiber));
+
+    return {
+      ...root,
+      unmount: () => unmountResourceFiber(fiber),
+    };
   }
 
-  const rendered = renderResourceFiber(fiber, [render]);
-  flushTapSync(() => commitResourceFiber(fiber));
-
-  const root = rendered as useTapRoot.Root<R>;
+  let subscriberCount = 0;
+  const unmountScheduler = new UpdateScheduler(() => {
+    if (subscriberCount === 0 && fiber.isMounted) unmountResourceFiber(fiber);
+  });
 
   return {
-    ...root,
+    getValue: () => ensureRoot().getValue(),
+    subscribe: (listener) => {
+      const unsubscribe = ensureRoot().subscribe(listener);
+      if (subscriberCount++ === 0 && !fiber.isMounted) {
+        try {
+          // Remounts re-render first so the commit sees fresh effect closures
+          if (!fiber.isNeverMounted) void renderFiber();
+          flushTapSync(() => commitResourceFiber(fiber));
+        } catch (error) {
+          try {
+            if (fiber.isMounted) unmountResourceFiber(fiber);
+          } finally {
+            subscriberCount--;
+            unsubscribe();
+          }
+          throw error;
+        }
+      }
+
+      let isSubscribed = true;
+      return () => {
+        if (!isSubscribed) return;
+        isSubscribed = false;
+        unsubscribe();
+        if (--subscriberCount === 0) unmountScheduler.markDirty();
+      };
+    },
     unmount: () => {
-      unmountResourceFiber(fiber);
+      throw new Error("unmount() is not supported with mountOnSubscribe");
     },
   };
 };
