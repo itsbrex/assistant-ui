@@ -12,6 +12,7 @@ import {
   setRootVersion,
 } from "../core/helpers/root";
 import { cloneCurrentTapContext, withTapContextRoot } from "../core/context";
+import { isThenable } from "../core/helpers/thenable";
 import type { ResourceContext } from "../core/types";
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useDevStrictMode } from "./utils/useDevStrictMode";
@@ -113,15 +114,30 @@ export const useTapRoot = <R>(render: () => R): useTapRoot.Root<R> => {
       fiber.root.committedVersion + fiber.root.changelog.length,
     );
 
-    if (isDevelopment && fiber.devStrictMode) {
-      void withTapContextRoot(stateRef.current.context, () => {
+    let render: R;
+    try {
+      if (isDevelopment && fiber.devStrictMode) {
+        void withTapContextRoot(stateRef.current.context, () => {
+          return renderResourceFiber(fiber, stateRef.current.committedArgs);
+        });
+      }
+
+      render = withTapContextRoot(stateRef.current.context, () => {
         return renderResourceFiber(fiber, stateRef.current.committedArgs);
       });
+    } catch (error) {
+      // Suspended outside a React render: hold the committed value and retry
+      // once the thenable settles (transition semantics).
+      if (isThenable(error)) {
+        setRootVersion(fiber.root, fiber.root.committedVersion);
+        const retry = () => {
+          if (stateRef.current.isMounted) scheduler.markDirty();
+        };
+        error.then(retry, retry);
+        return;
+      }
+      throw error;
     }
-
-    const render = withTapContextRoot(stateRef.current.context, () => {
-      return renderResourceFiber(fiber, stateRef.current.committedArgs);
-    });
 
     if (scheduler.isDirty)
       throw new Error("Scheduler is dirty, this should never happen");
@@ -148,7 +164,10 @@ export const useTapRoot = <R>(render: () => R): useTapRoot.Root<R> => {
 
   useEffect(() => {
     if (processed) {
-      if (!fiber.isMounted) commitResourceFiber(fiber);
+      if (!fiber.isMounted) {
+        commitResourceFiber(fiber);
+        if (queue.length && !scheduler.isDirty) scheduler.markDirty();
+      }
       return;
     }
     processed = true;
