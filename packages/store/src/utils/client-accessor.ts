@@ -84,6 +84,23 @@ export const createErrorClientAccessor = (
 };
 
 /**
+ * Scope resolution is tri-state: available (a bound accessor), present but
+ * unavailable (an error accessor with `source: null`), or absent entirely (a
+ * hand-built parent chain without the scope). `isScopeAvailable` collapses
+ * the last two; event subscription keeps them apart because an absent scope
+ * still forwards to the parent.
+ */
+export const isScopeAvailable = <
+  T extends { source: ClientNames | "root" | null },
+>(
+  accessor: T | undefined,
+): accessor is T => accessor?.source != null;
+
+export const isScopeUnavailable = (
+  accessor: { source: ClientNames | "root" | null } | undefined,
+): boolean => accessor?.source === null;
+
+/**
  * Returns the opaque identity of a bound client instance.
  *
  * The identity is stable for the lifetime of the bound client: the same
