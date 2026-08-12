@@ -10,6 +10,7 @@ import { useState } from "../../react-hooks/useState";
 import { isDevelopment } from "../../core/helpers/env";
 
 const mountRuns = isDevelopment ? 2 : 1;
+const remountEvents = isDevelopment ? ["mount", "unmount", "mount"] : ["mount"];
 
 const flushUpdates = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -95,7 +96,7 @@ describe("createTapRoot mountOnSubscribe", () => {
     expect(effect).toHaveBeenCalledTimes(mountRuns);
   });
 
-  it("dev strict mode double invokes effects on the first mount only", async () => {
+  it("dev strict mode double invokes effects on every connect", async () => {
     const body = vi.fn();
     const effect = vi.fn();
     const root = createTapRoot(
@@ -114,8 +115,8 @@ describe("createTapRoot mountOnSubscribe", () => {
     unsubscribe();
     await flushUpdates();
     root.subscribe(() => {});
-    expect(body).toHaveBeenCalledTimes(mountRuns * 2);
-    expect(effect).toHaveBeenCalledTimes(mountRuns + 1);
+    expect(body).toHaveBeenCalledTimes(mountRuns);
+    expect(effect).toHaveBeenCalledTimes(mountRuns * 2);
   });
 
   it("notifies the first subscriber of updates dispatched during its own mount", () => {
@@ -149,7 +150,7 @@ describe("createTapRoot mountOnSubscribe", () => {
     expect(events).toEqual(["unmount"]);
 
     root.subscribe(() => {});
-    expect(events).toEqual(["unmount", "mount"]);
+    expect(events).toEqual(["unmount", ...remountEvents]);
   });
 
   it("keeps effects mounted while any subscriber remains", async () => {
@@ -211,6 +212,59 @@ describe("createTapRoot mountOnSubscribe", () => {
     expect(root.getValue()).toBe(5);
   });
 
+  it("remounts with fresh state after updates while soft-unmounted", async () => {
+    const body = vi.fn();
+    const seen: number[] = [];
+    const root = createTapRoot(
+      function Fresh() {
+        body();
+        const [count, setCount] = useState(0);
+        useEffect(() => {
+          seen.push(count);
+        }, [count]);
+        return { count, setCount };
+      },
+      { mountOnSubscribe: true },
+    );
+
+    const unsubscribe = root.subscribe(() => {});
+    unsubscribe();
+    await flushUpdates();
+
+    root.getValue().setCount(5);
+    await flushUpdates();
+    expect(root.getValue().count).toBe(5);
+
+    const renders = body.mock.calls.length;
+    root.subscribe(() => {});
+    expect(root.getValue().count).toBe(5);
+    expect(seen[seen.length - 1]).toBe(5);
+    expect(body).toHaveBeenCalledTimes(renders);
+  });
+
+  it("remounts without re-rendering when nothing changed while soft-unmounted", async () => {
+    const body = vi.fn();
+    const effect = vi.fn();
+    const root = createTapRoot(
+      function Idle() {
+        body();
+        useEffect(effect);
+        return null;
+      },
+      { mountOnSubscribe: true },
+    );
+
+    const unsubscribe = root.subscribe(() => {});
+    unsubscribe();
+    await flushUpdates();
+
+    const renders = body.mock.calls.length;
+    const effects = effect.mock.calls.length;
+    root.subscribe(() => {});
+    expect(body).toHaveBeenCalledTimes(renders);
+    expect(effect).toHaveBeenCalledTimes(effects + mountRuns);
+  });
+
   it("preserves ref and memo cells across an unsubscribe/resubscribe cycle", async () => {
     const memoFn = vi.fn(() => ({}));
     const root = createTapRoot(
@@ -252,7 +306,13 @@ describe("createTapRoot mountOnSubscribe", () => {
       await flushUpdates();
     }
 
-    expect(events).toEqual(["unmount", "mount", "unmount", "mount", "unmount"]);
+    expect(events).toEqual([
+      "unmount",
+      ...remountEvents,
+      "unmount",
+      ...remountEvents,
+      "unmount",
+    ]);
   });
 
   it("applies state updates while soft-unmounted without running effects", async () => {
@@ -269,7 +329,7 @@ describe("createTapRoot mountOnSubscribe", () => {
     expect(events).toEqual([]);
 
     root.subscribe(() => {});
-    expect(events).toEqual(["mount"]);
+    expect(events).toEqual(remountEvents);
     expect(root.getValue()).toBe(7);
   });
 
@@ -341,7 +401,7 @@ describe("createTapRoot mountOnSubscribe", () => {
     shouldThrow = false;
     events.length = 0;
     root.subscribe(() => {});
-    expect(events).toEqual(["mount"]);
+    expect(events).toEqual(Array(mountRuns).fill("mount"));
     expect(root.getValue()).toBe(1);
   });
 

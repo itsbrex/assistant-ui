@@ -13,20 +13,10 @@ export const createTapRoot = <R>(
   render: () => R,
   options?: { mountOnSubscribe?: boolean },
 ): useTapRoot.Root<R> & { unmount: () => void } => {
-  const pendingEvaluates: (() => boolean)[] = [];
-  const scheduler = new UpdateScheduler(() => {
-    for (const evaluate of pendingEvaluates.splice(0)) {
-      if (evaluate()) {
-        throw new Error("Unexpected rerender of createTapRoot outer fiber");
-      }
-    }
-  });
-
   const fiber = createResourceFiber(
     useTapRoot,
-    createResourceFiberRoot((evaluate) => {
-      pendingEvaluates.push(evaluate);
-      scheduler.markDirty();
+    createResourceFiberRoot(() => {
+      throw new Error("Unexpected update on createTapRoot outer fiber");
     }),
     undefined,
     isDevelopment ? "root" : null,
@@ -40,12 +30,15 @@ export const createTapRoot = <R>(
     return renderResourceFiber(fiber, [render]) as useTapRoot.Root<R>;
   };
 
+  const commitScheduler = new UpdateScheduler(() => commitResourceFiber(fiber));
+  const commitFiber = () => flushTapSync(() => commitScheduler.markDirty());
+
   let root: useTapRoot.Root<R> | undefined;
   const ensureRoot = () => (root ??= renderFiber());
 
   if (!options?.mountOnSubscribe) {
     const root = ensureRoot();
-    flushTapSync(() => commitResourceFiber(fiber));
+    commitFiber();
 
     return {
       ...root,
@@ -55,7 +48,7 @@ export const createTapRoot = <R>(
 
   let subscriberCount = 0;
   const unmountScheduler = new UpdateScheduler(() => {
-    if (subscriberCount === 0 && fiber.isMounted) unmountResourceFiber(fiber);
+    if (subscriberCount === 0) unmountResourceFiber(fiber);
   });
 
   return {
@@ -64,12 +57,10 @@ export const createTapRoot = <R>(
       const unsubscribe = ensureRoot().subscribe(listener);
       if (subscriberCount++ === 0 && !fiber.isMounted) {
         try {
-          // Remounts re-render first so the commit sees fresh effect closures
-          if (!fiber.isNeverMounted) void renderFiber();
-          flushTapSync(() => commitResourceFiber(fiber));
+          commitFiber();
         } catch (error) {
           try {
-            if (fiber.isMounted) unmountResourceFiber(fiber);
+            unmountResourceFiber(fiber);
           } finally {
             subscriberCount--;
             unsubscribe();

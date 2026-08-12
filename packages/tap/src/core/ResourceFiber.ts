@@ -1,6 +1,10 @@
 import type { ResourceFiber, TapRoot } from "./types";
 import { bubbleContextDeps } from "./context";
-import { commitAllCallbacks, cleanupAllEffects } from "./helpers/commit";
+import {
+  commitAllCallbacks,
+  cleanupAllEffects,
+  reconcileEffects,
+} from "./helpers/commit";
 import { withResourceFiber } from "./helpers/execution-context";
 import { withReactDispatcher } from "./react-dispatcher";
 import { isDevelopment } from "./helpers/env";
@@ -18,9 +22,9 @@ export function createResourceFiber<R>(
     markDirty,
     devStrictMode: strictMode,
     cells: [],
+    effectCells: [],
     contextDeps: null,
     wipContextDeps: null,
-    commitCallbacks: null,
     wipCommitCallbacks: null,
     memoCache: {
       current: null,
@@ -35,9 +39,14 @@ export function createResourceFiber<R>(
   };
 }
 
+// Only valid when the discarded render applied no state update
+export function discardWipRender<R>(fiber: ResourceFiber<R>): void {
+  fiber.wipCommitCallbacks = null;
+  fiber.memoCache.workInProgress = null;
+}
+
 export function unmountResourceFiber<R>(fiber: ResourceFiber<R>): void {
-  if (!fiber.isMounted)
-    throw new Error("Tried to unmount a fiber that is already unmounted");
+  if (!fiber.isMounted) return;
 
   fiber.isMounted = false;
   cleanupAllEffects(fiber);
@@ -77,27 +86,28 @@ export function renderResourceFiber<R>(
 }
 
 export function commitResourceFiber<R>(fiber: ResourceFiber<R>): void {
-  const commitCallbacks =
-    fiber.wipCommitCallbacks ?? fiber.commitCallbacks ?? [];
+  const commitCallbacks = fiber.wipCommitCallbacks;
   fiber.wipCommitCallbacks = null;
-  fiber.commitCallbacks = commitCallbacks;
+  const strictReplay =
+    isDevelopment && !fiber.isMounted && fiber.devStrictMode === "root";
 
   fiber.isMounted = true;
-  fiber.contextDeps = fiber.wipContextDeps;
-  commitRoot(fiber.root);
+  fiber.isNeverMounted = false;
 
-  if (fiber.memoCache.workInProgress !== null) {
-    fiber.memoCache.current = fiber.memoCache.workInProgress;
-    fiber.memoCache.workInProgress = null;
-  }
+  if (commitCallbacks !== null) {
+    fiber.contextDeps = fiber.wipContextDeps;
+    commitRoot(fiber.root);
 
-  if (isDevelopment && fiber.isNeverMounted && fiber.devStrictMode === "root") {
-    fiber.isNeverMounted = false;
+    if (fiber.memoCache.workInProgress !== null) {
+      fiber.memoCache.current = fiber.memoCache.workInProgress;
+      fiber.memoCache.workInProgress = null;
+    }
 
     commitAllCallbacks(commitCallbacks);
+  }
+  if (strictReplay) {
+    reconcileEffects(fiber);
     cleanupAllEffects(fiber);
   }
-
-  fiber.isNeverMounted = false;
-  commitAllCallbacks(commitCallbacks);
+  reconcileEffects(fiber);
 }
