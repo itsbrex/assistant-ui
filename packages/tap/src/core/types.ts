@@ -96,6 +96,9 @@ export interface ResourceFiber<R> {
   wipCommitCallbacks: CommitCallbacks | null;
 
   currentIndex: number;
+  // workInProgress persists across uncommitted renders: a StrictMode double
+  // invoke reaches tap as separate renderResourceFiber calls with no attempt
+  // boundary, so an entry discard would re-run every compiled memo factory.
   memoCache: {
     current: unknown[][] | null;
     workInProgress: unknown[][] | null;
