@@ -28,6 +28,10 @@ const dispatchOnFiber = (
   let evaluated = false;
   let hasWork = true;
 
+  // Counted after the mount guard, and deliberately not unwound on a host
+  // throw: the dispatch site cannot know whether the host enqueued the update,
+  // and over-retained history is the safe failure direction.
+  fiber.root.unsettledCount++;
   fiber.root.dispatchUpdate(
     () => {
       if (evaluated) return hasWork;
@@ -112,7 +116,6 @@ const createReducerCell = (
           logged: false,
         };
 
-        fiber.root.unsettledCount++;
         dispatchOnFiber(fiber, record, eagerBailout ? reducer : undefined);
       }
     },

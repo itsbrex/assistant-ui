@@ -7,10 +7,15 @@ import {
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "@testing-library/react";
-import type { TapRoot } from "../../core/types";
+import type { ChangelogRecord, TapRoot } from "../../core/types";
 import { resource } from "../../core/resource";
 import { commitRoot, setRootVersion } from "../../core/helpers/root";
-import { renderResourceFiber } from "../../core/ResourceFiber";
+import {
+  commitResourceFiber,
+  createResourceFiber,
+  renderResourceFiber,
+} from "../../core/ResourceFiber";
+import { createResourceFiberRoot } from "../../core/helpers/root";
 import { useResource } from "../../index";
 import { useReducer as useResourceReducer } from "../../react-hooks/useReducer";
 import { useMemo as useResourceMemo } from "../../react-hooks/useMemo";
@@ -286,7 +291,21 @@ describe("React-hosted reducer replay below the committed version", () => {
     });
 
     const committed = renderTest(fiber, 1);
+    // The seeded record and phantom unsettled count keep committedLog
+    // populated through commitRoot, so the descent below has history to pop
+    // and does not trip the short-history dev guard.
+    fiber.root.unsettledCount = 2;
     setRootVersion(fiber.root, 3);
+    fiber.root.changelog.push({
+      fiber: { root: fiber.root, markDirty: undefined },
+      cell: { isDirty: false, queue: null, workInProgress: "x", current: "x" },
+      prevState: "x",
+      hasEagerState: false,
+      eagerState: undefined,
+      settled: false,
+      queued: false,
+      logged: true,
+    } as unknown as ChangelogRecord);
     commitRoot(fiber.root);
     setRootVersion(fiber.root, 4);
     expect(renderResourceFiber(fiber, [2])).toEqual({ x: 2 });
@@ -294,6 +313,73 @@ describe("React-hosted reducer replay below the committed version", () => {
     setRootVersion(fiber.root, 2);
     expect(renderTest(fiber, 1)).toBe(committed);
     expect(computes).toBe(2);
+  });
+
+  it("does not leak unsettled accounting when a dispatch throws before mount", () => {
+    let push!: (chunk: string) => void;
+    const fiber = createTestResource(() => {
+      const [chunks, dispatch] = useResourceReducer(
+        (s: readonly string[], c: string) => [...s, c],
+        [] as readonly string[],
+      );
+      push = dispatch;
+      return chunks;
+    });
+
+    renderResourceFiber(fiber, []);
+    expect(() => push("early")).toThrow("Resource updated before mount");
+    expect(fiber.root.unsettledCount).toBe(0);
+  });
+
+  it("leaves accounting pending when the host dispatch throws", () => {
+    const root = createResourceFiberRoot(() => {
+      throw new Error("host dispatch failure");
+    });
+    let push!: (chunk: string) => void;
+    const fiber = createResourceFiber(
+      () => {
+        const [chunks, dispatch] = useResourceReducer(
+          (s: readonly string[], c: string) => [...s, c],
+          [] as readonly string[],
+        );
+        push = dispatch;
+        return chunks;
+      },
+      root,
+      undefined,
+      null,
+    );
+
+    renderResourceFiber(fiber, []);
+    commitResourceFiber(fiber);
+    expect(() => push("boom")).toThrow("host dispatch failure");
+    expect(root.unsettledCount).toBe(1);
+  });
+
+  it("keeps a queued record unsettled when the host throws after applying", () => {
+    const root = createResourceFiberRoot((_evaluate, apply) => {
+      apply();
+      throw new Error("post apply failure");
+    });
+    let push!: (chunk: string) => void;
+    const fiber = createResourceFiber(
+      () => {
+        const [chunks, dispatch] = useResourceReducer(
+          (s: readonly string[], c: string) => [...s, c],
+          [] as readonly string[],
+        );
+        push = dispatch;
+        return chunks;
+      },
+      root,
+      undefined,
+      null,
+    );
+
+    renderResourceFiber(fiber, []);
+    commitResourceFiber(fiber);
+    expect(() => push("boom")).toThrow("post apply failure");
+    expect(root.unsettledCount).toBe(1);
   });
 
   it("rebases a mid-tick mixed-lane chain to the React oracle", async () => {
