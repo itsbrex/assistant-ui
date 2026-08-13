@@ -504,23 +504,20 @@ export class ExternalStoreThreadRuntimeCore
       rawMessage.sourceId != null ||
       rawMessage.parentId !== (this.messages.at(-1)?.id ?? null);
 
-    // Buffering does not start a run, so the tool-abort below must wait until
-    // the queue flushes. By then the prior run (and its tools) has settled.
-    if (!isEdit && this._store.queue) {
-      // Skip only for the queue this core actually installed on: another
-      // core's transform would gate against its own thread's messages.
-      const queued =
-        this._store.queue === this._transformedQueue
-          ? rawMessage
-          : this.enrichAppendMetadata(rawMessage);
-      if (queued.steer ?? this._store.isRunning ?? false)
-        this._store.queue.steer(queued);
-      else this._store.queue.enqueue(queued);
-      return;
-    }
+    // A transformed-queue send is stamped at flush; any other queue's
+    // transform would gate against its own thread's messages, so those stamp
+    // at send.
+    const message =
+      !isEdit &&
+      this._store.queue &&
+      this._store.queue === this._transformedQueue
+        ? rawMessage
+        : this.enrichAppendMetadata(rawMessage);
 
+    // The queue driver dispatches through the host adapter, outside this
+    // core, so the initialization barrier must run before a message can
+    // enter the queue.
     const generation = captureThreadRuntimeGeneration(this);
-    const message = this.enrichAppendMetadata(rawMessage);
     this.ensureInitialized();
 
     const initPromise = this._getInitializePromise?.();
@@ -528,6 +525,15 @@ export class ExternalStoreThreadRuntimeCore
       await initPromise;
     }
     if (!isThreadRuntimeGenerationCurrent(this, generation)) return;
+
+    // Buffering does not start a run, so the tool-abort below must wait until
+    // the queue flushes. By then the prior run (and its tools) has settled.
+    if (!isEdit && this._store.queue) {
+      if (message.steer ?? this._store.isRunning ?? false)
+        this._store.queue.steer(message);
+      else this._store.queue.enqueue(message);
+      return;
+    }
 
     // Auto-abort in-flight client-side tool executions when a new run is
     // about to start. Without this, a tool that finishes after the new turn
