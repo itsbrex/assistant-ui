@@ -104,8 +104,11 @@ const createMessageItem = (context: AuiContext, index: number): MessageItem => {
 
 /**
  * Builder for the thread's message list. Call during component
- * initialization; iterate `items` keyed by message id and scope per-row work
- * through `item(index)`.
+ * initialization; iterate `items` by index and scope per-row work through
+ * `item(index)`. Until items can be addressed by message id, keying the
+ * iteration by id would let a row whose index shifts keep its component
+ * instance silently driving the old index, so index iteration trades
+ * per-row transition identity for correctness.
  *
  * Items are cached per index for the builder's lifetime: a row that stops
  * being observed suspends its scopes and resumes with state intact when a
@@ -114,7 +117,7 @@ const createMessageItem = (context: AuiContext, index: number): MessageItem => {
  * @example
  * ```svelte
  * const messages = threadMessages();
- * // {#each messages.items as message, index (message.id)}
+ * // {#each messages.items as message, index}
  * //   {@const item = messages.item(index)}
  * // {/each}
  * ```
