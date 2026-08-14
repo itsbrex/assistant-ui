@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fromThreadMessageLike,
   generateId,
@@ -31,6 +31,7 @@ import {
   getEveMessageContent,
   toEveInputResponse,
 } from "./convertEveMessages";
+import { eveExtras } from "./eveExtras";
 
 const USER_STAGED_STATUS = {
   type: "complete",
@@ -195,8 +196,23 @@ export const useEveAgentRuntime = (options: UseEveAgentRuntimeOptions = {}) => {
     >(),
   );
 
-  const hasExecutingTools = Object.values(toolStatuses).some(
-    (status) => status?.type === "executing",
+  // The core tracker publishes its whole status map on every transition, and
+  // an execution discarded by a reset keeps its entry until it settles — so a
+  // status is only evidence of a live turn while its tool call is still in the
+  // session.
+  const sessionToolCallIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const message of agent.data.messages) {
+      for (const part of message.parts) {
+        if (part.type === "dynamic-tool") ids.add(part.toolCallId);
+      }
+    }
+    return ids;
+  }, [agent.data]);
+
+  const hasExecutingTools = Object.entries(toolStatuses).some(
+    ([toolCallId, status]) =>
+      status?.type === "executing" && sessionToolCallIds.has(toolCallId),
   );
   const isRunning =
     agent.status === "submitted" ||
@@ -236,7 +252,14 @@ export const useEveAgentRuntime = (options: UseEveAgentRuntimeOptions = {}) => {
   // without watching status.
   const sendChainRef = useRef<Promise<void>>(Promise.resolve());
   const sendEpochRef = useRef(0);
+  // A cancel drops the queued send but keeps its draft for a later promotion;
+  // only a reset discards the draft with the session, so the two need separate
+  // counters.
+  const resetEpochRef = useRef(0);
   const isMountedRef = useRef(true);
+  const runtimeRef = useRef<ReturnType<typeof useExternalStoreRuntime> | null>(
+    null,
+  );
 
   const enqueueSend = (dispatch: () => Promise<void>) => {
     const epoch = sendEpochRef.current;
@@ -302,10 +325,40 @@ export const useEveAgentRuntime = (options: UseEveAgentRuntimeOptions = {}) => {
     setStagedMessages(nextMessages);
   };
 
-  return useExternalStoreRuntime({
+  const reset = useCallback(() => {
+    // Client-side tool executions live in the core tracker, which an adapter
+    // can only reach through the cancel path; without it an execution keeps
+    // running against a session that is gone.
+    runtimeRef.current?.thread.cancelRun();
+    // Sends parked behind an active turn captured the pre-reset epoch, so the
+    // epoch has to advance before the session is torn down or they dispatch
+    // into the new one; `lastFinishStatusRef` is run-scoped for the same
+    // reason.
+    sendEpochRef.current += 1;
+    resetEpochRef.current += 1;
+    lastFinishStatusRef.current = null;
+    setStagedMessages(null);
+    stagedInputsRef.current.clear();
+    setToolStatuses({});
+    agent.reset();
+  }, [agent]);
+
+  const extras = useMemo(
+    () =>
+      eveExtras.provide({
+        error: agent.error,
+        events: agent.events,
+        session: agent.session,
+        reset,
+      }),
+    [agent.error, agent.events, agent.session, reset],
+  );
+
+  const runtime = useExternalStoreRuntime({
     ...pickExternalStoreSharedOptions(options),
     messages,
     isRunning,
+    extras,
     unstable_enableToolInvocations: true,
     setToolStatuses,
     adapters: {
@@ -342,6 +395,7 @@ export const useEveAgentRuntime = (options: UseEveAgentRuntimeOptions = {}) => {
             if (!stagedRun)
               throw new Error("Runtime does not support reloading messages.");
             const epoch = sendEpochRef.current;
+            const resetEpoch = resetEpochRef.current;
             for (const { message: stagedMessage, input } of stagedRun) {
               if (epoch !== sendEpochRef.current) return;
               const previousMessages = messagesRef.current;
@@ -368,6 +422,10 @@ export const useEveAgentRuntime = (options: UseEveAgentRuntimeOptions = {}) => {
                   ),
                 );
               } catch (error) {
+                // A reset discarded the draft along with the session, so
+                // restoring it here would refloat a message the thread no
+                // longer has. A cancel still restores.
+                if (resetEpoch !== resetEpochRef.current) return;
                 stagedInputsRef.current.set(stagedMessage.id, input);
                 messagesRef.current = previousMessages;
                 setStagedMessages(previousMessages);
@@ -392,4 +450,7 @@ export const useEveAgentRuntime = (options: UseEveAgentRuntimeOptions = {}) => {
       }
     },
   });
+  runtimeRef.current = runtime;
+
+  return runtime;
 };
