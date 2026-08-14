@@ -39,6 +39,26 @@
   const isEditing = useAuiState((s) => s.composer.isEditing, target);
   const branchNumber = useAuiState((s) => s.message.branchNumber, target);
   const branchCount = useAuiState((s) => s.message.branchCount, target);
+  const pulsing = useAuiState(
+    (s) => s.message.content.length === 0 && s.thread.isRunning,
+    target,
+  );
+  const error = useAuiState((s) => {
+    const current = s.message;
+    if (
+      current.role !== "assistant" ||
+      current.status.type !== "incomplete" ||
+      current.status.reason !== "error"
+    ) {
+      return null;
+    }
+    const value = current.status.error;
+    if (typeof value === "string") return value;
+    if (value && typeof value === "object" && "message" in value) {
+      return String(value.message);
+    }
+    return "An error occurred.";
+  }, target);
   const edit = actionBarEdit(target);
   const copy = actionBarCopy(target);
   const reload = actionBarReload(target);
@@ -90,7 +110,12 @@
           : "text-foreground leading-relaxed",
       ].join(" ")}
     >
-      <p class="whitespace-pre-line">{text}</p>
+      <p class="whitespace-pre-line">
+        {text}{#if pulsing.current}<span class="animate-pulse">…</span>{/if}
+        {#if error.current}<span class="text-destructive text-sm"
+          >{error.current}</span
+        >{/if}
+      </p>
     </div>
   {/if}
   <div
