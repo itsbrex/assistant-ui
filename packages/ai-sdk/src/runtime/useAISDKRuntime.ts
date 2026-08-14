@@ -275,14 +275,20 @@ export const useAISDKRuntime = <UI_MESSAGE extends UIMessage = UIMessage>(
     },
   );
 
-  const { error } = chatHelpers;
+  const {
+    id: chatId,
+    messages: chatMessages,
+    status: chatStatus,
+    error,
+  } = chatHelpers;
   const extras = useMemo(
     () =>
       aiSDKExtras.provide({
         chat: chatHelpers as unknown as UseChatHelpers<UIMessage>,
         error,
       }),
-    [chatHelpers, error],
+    // oxlint-disable-next-line react/exhaustive-deps -- keyed on the chat's identity and reactive snapshots; useChat re-mints the helpers object every render while its remaining fields are instance-bound methods, and a render-stable extras identity is what lets the external-store core dedupe adapter updates
+    [chatId, chatMessages, chatStatus, error],
   );
 
   const completePendingToolCalls = async () => {
