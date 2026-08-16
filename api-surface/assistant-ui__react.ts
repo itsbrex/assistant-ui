@@ -5662,6 +5662,7 @@ type Unstable_UseComposerInputOptions = {
 
 type Unstable_UseLiveCompletionAdapterOptions = {
   readonly fetcher: (query: string) => Promise<readonly Unstable_TriggerItem[]>;
+  readonly cacheKey?: string | number | undefined;
   readonly debounceMs?: number | undefined;
   readonly enabled?: boolean | undefined;
 };
