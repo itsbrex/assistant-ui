@@ -16,6 +16,7 @@ import type {
 import { toJSONSchema, toPartialJSONSchema } from "assistant-stream";
 import { ModelContext } from "../../store";
 import { buildInteractableModelContext } from "./interactable-model-context";
+import { notifySubscribers as notifyStateSubscribers } from "../../subscribable/subscribable";
 
 const PERSISTENCE_DEBOUNCE_MS = 500;
 
@@ -321,7 +322,7 @@ const useInteractables = (): ClientOutput<"interactables"> => {
   );
 
   useEffect(() => {
-    for (const cb of subscribersRef.current) cb();
+    notifyStateSubscribers(subscribersRef.current);
   }, [state]);
 
   useAssistantScopeEffect(
