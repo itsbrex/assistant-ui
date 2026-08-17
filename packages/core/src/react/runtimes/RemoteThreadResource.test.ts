@@ -10,7 +10,7 @@ afterEach(() => {
 });
 
 describe("subscribeToTitleGeneration", () => {
-  it("reports title generation failures through the runtime event boundary", async () => {
+  it("reports title generation failures", async () => {
     const error = new Error("title unavailable");
     const core = new LocalRuntimeCore(
       {
@@ -54,9 +54,88 @@ describe("subscribeToTitleGeneration", () => {
     await vi.waitFor(() => {
       expect(itemRuntime.generateTitle).toHaveBeenCalledOnce();
       expect(consoleError).toHaveBeenCalledWith(
-        '[assistant-ui] Runtime event "runEnd" listener threw an error',
+        "[assistant-ui] Thread title generation failed",
         error,
       );
+    });
+  });
+
+  it("waits for the first message before generating", async () => {
+    const core = new LocalRuntimeCore(
+      {
+        adapters: {
+          chatModel: {
+            async run() {
+              return { content: [{ type: "text", text: "done" }] };
+            },
+          },
+        },
+        unstable_humanToolNames: [],
+      },
+      undefined,
+    );
+    const runtime = new AssistantRuntimeImpl(core);
+    const itemRuntime = {
+      generateTitle: vi.fn(async () => {}),
+    } as unknown as ThreadListItemRuntime;
+
+    subscribeToTitleGeneration(runtime.thread, itemRuntime);
+    expect(itemRuntime.generateTitle).not.toHaveBeenCalled();
+
+    const message: AppendMessage = {
+      parentId: null,
+      sourceId: null,
+      runConfig: {},
+      role: "user",
+      content: [{ type: "text", text: "hello" }],
+      attachments: [],
+      metadata: { custom: {} },
+      createdAt: new Date(),
+      startRun: false,
+    };
+    await core.threads.getMainThreadRuntimeCore().append(message);
+
+    await vi.waitFor(() => {
+      expect(itemRuntime.generateTitle).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("generates immediately when a message already exists", async () => {
+    const core = new LocalRuntimeCore(
+      {
+        adapters: {
+          chatModel: {
+            async run() {
+              return { content: [{ type: "text", text: "done" }] };
+            },
+          },
+        },
+        unstable_humanToolNames: [],
+      },
+      undefined,
+    );
+    const runtime = new AssistantRuntimeImpl(core);
+    const itemRuntime = {
+      generateTitle: vi.fn(async () => {}),
+    } as unknown as ThreadListItemRuntime;
+
+    const message: AppendMessage = {
+      parentId: null,
+      sourceId: null,
+      runConfig: {},
+      role: "user",
+      content: [{ type: "text", text: "hello" }],
+      attachments: [],
+      metadata: { custom: {} },
+      createdAt: new Date(),
+      startRun: false,
+    };
+    await core.threads.getMainThreadRuntimeCore().append(message);
+
+    subscribeToTitleGeneration(runtime.thread, itemRuntime);
+
+    await vi.waitFor(() => {
+      expect(itemRuntime.generateTitle).toHaveBeenCalledOnce();
     });
   });
 });
