@@ -143,6 +143,86 @@ describe("LocalThreadRuntimeCore events", () => {
   });
 });
 
+describe("LocalThreadRuntimeCore history persistence", () => {
+  it("surfaces failed user persistence without abandoning the run", async () => {
+    const persistenceError = new Error("history unavailable");
+    const run = vi.fn(async () => ({
+      content: [{ type: "text" as const, text: "done" }],
+    }));
+    const append = vi.fn(async (item: ExportedMessageRepositoryItem) => {
+      if (item.message.role === "user") throw persistenceError;
+    });
+    const thread = createThread(
+      { run },
+      {
+        history: {
+          async load() {
+            return { messages: [] };
+          },
+          append,
+        },
+      },
+    );
+
+    await expect(thread.append(userMessage("hello"))).rejects.toBe(
+      persistenceError,
+    );
+
+    expect(append).toHaveBeenCalledTimes(2);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("surfaces failed persistence for messages that do not start a run", async () => {
+    const persistenceError = new Error("history unavailable");
+    const run = vi.fn();
+    const thread = createThread(
+      { run },
+      {
+        history: {
+          async load() {
+            return { messages: [] };
+          },
+          async append() {
+            throw persistenceError;
+          },
+        },
+      },
+    );
+
+    await expect(
+      thread.append({ ...userMessage("hello"), startRun: false }),
+    ).rejects.toBe(persistenceError);
+
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("handles failed persistence before notifying no-run subscribers", async () => {
+    const persistenceError = new Error("history unavailable");
+    const listenerError = new Error("listener unavailable");
+    const thread = createThread(
+      { run: vi.fn() },
+      {
+        history: {
+          async load() {
+            return { messages: [] };
+          },
+          async append() {
+            throw persistenceError;
+          },
+        },
+      },
+    );
+    thread.subscribe(() => {
+      throw listenerError;
+    });
+
+    await expect(
+      thread.append({ ...userMessage("hello"), startRun: false }),
+    ).rejects.toBe(listenerError);
+    await flush();
+  });
+});
+
 describe("LocalThreadRuntimeCore - detach", () => {
   it("drops a pending append when detached", async () => {
     let resolveInitialization!: () => void;
