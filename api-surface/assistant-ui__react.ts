@@ -699,33 +699,53 @@ type AssistantToolUIProps<TArgs, TResult> = {
   display?: "inline" | "standalone";
 };
 
-type AssistantTransportCommand = AddMessageCommand | AddToolResultCommand | UserCommands;
+type AssistantTransportCommand = Exclude<AssistantTransportCommand$1, UserCommands$1> | UserCommands;
 
-type AssistantTransportConnectionMetadata = {
+type AssistantTransportCommand$1 = AddMessageCommand | AddToolResultCommand | UserCommands$1;
+
+type AssistantTransportConnectionMetadata = Omit<AssistantTransportConnectionMetadata$1, "pendingCommands"> & {
   pendingCommands: AssistantTransportCommand[];
+};
+
+type AssistantTransportConnectionMetadata$1 = {
+  pendingCommands: AssistantTransportCommand$1[];
   isSending: boolean;
   toolStatuses: Record<string, ToolExecutionStatus>;
 };
 
-type AssistantTransportOptions<T> = {
-  initialState: T;
-  api: string;
-  resumeApi?: string;
-  resumeStateApi?: string;
-  protocol?: AssistantTransportProtocol;
-  strict?: boolean;
+type AssistantTransportOptions<T> = Omit<AssistantTransportOptions$1<T>, "converter" | "onCancel" | "onError" | "prepareSendCommandsRequest"> & {
   converter: AssistantTransportStateConverter<T>;
-  headers: HeadersValue | (() => Promise<HeadersValue>);
-  body?: object | (() => Promise<object | undefined>);
   prepareSendCommandsRequest?: (body: SendCommandsRequestBody) => Record<string, unknown> | Promise<Record<string, unknown>>;
-  onResponse?: (response: Response) => void | Promise<void>;
-  onFinish?: () => void;
   onError?: (error: Error, params: {
     commands: AssistantTransportCommand[];
     updateState: (updater: (state: T) => T) => void;
   }) => void | Promise<void>;
   onCancel?: (params: {
     commands: AssistantTransportCommand[];
+    updateState: (updater: (state: T) => T) => void;
+    error?: Error;
+  }) => void;
+};
+
+type AssistantTransportOptions$1<T> = {
+  initialState: T;
+  api: string;
+  resumeApi?: string;
+  resumeStateApi?: string;
+  protocol?: AssistantTransportProtocol;
+  strict?: boolean;
+  converter: AssistantTransportStateConverter$1<T>;
+  headers: HeadersValue | (() => Promise<HeadersValue>);
+  body?: object | (() => Promise<object | undefined>);
+  prepareSendCommandsRequest?: (body: SendCommandsRequestBody$1) => Record<string, unknown> | Promise<Record<string, unknown>>;
+  onResponse?: (response: Response) => void | Promise<void>;
+  onFinish?: () => void;
+  onError?: (error: Error, params: {
+    commands: AssistantTransportCommand$1[];
+    updateState: (updater: (state: T) => T) => void;
+  }) => void | Promise<void>;
+  onCancel?: (params: {
+    commands: AssistantTransportCommand$1[];
     updateState: (updater: (state: T) => T) => void;
     error?: Error;
   }) => void;
@@ -746,7 +766,9 @@ type AssistantTransportState = {
   readonly isRunning: boolean;
 };
 
-type AssistantTransportStateConverter<T> = (state: T, connectionMetadata: AssistantTransportConnectionMetadata) => AssistantTransportState;
+type AssistantTransportStateConverter<T> = (state: T, connectionMetadata: AssistantTransportConnectionMetadata) => ReturnType<AssistantTransportOptions$1<T>["converter"]>;
+
+type AssistantTransportStateConverter$1<T> = (state: T, connectionMetadata: AssistantTransportConnectionMetadata$1) => AssistantTransportState;
 
 type AssistantTransportStateOperation = {
   readonly type: "set";
@@ -3522,7 +3544,7 @@ type QueuePlacement = {
   readonly insertBefore?: string | null;
 };
 
-type QueuedCommand = AssistantTransportCommand;
+type QueuedCommand = AssistantTransportCommand$1;
 
 type QuoteInfo = {
   readonly text: string;
@@ -3805,7 +3827,11 @@ declare const SelectionToolbarPrimitiveRoot: import("react").ForwardRefExoticCom
   render?: import("react").ReactElement | undefined;
 } & import("react").RefAttributes<HTMLDivElement>, "ref"> & import("react").RefAttributes<HTMLDivElement>>;
 
-type SendCommandsRequestBody = {
+type SendCommandsRequestBody = Omit<SendCommandsRequestBody$1, "commands"> & {
+  commands: AssistantTransportCommand[];
+};
+
+type SendCommandsRequestBody$1 = {
   commands: QueuedCommand[];
   state?: unknown;
   runId?: string;
@@ -5702,6 +5728,8 @@ type UseMessageIfProps = RequireAtLeastOne<MessageIfFilters>;
 type UseThreadIfProps = RequireAtLeastOne<ThreadIfFilters>;
 
 type UserCommands = Assistant.Commands[keyof Assistant.Commands];
+
+type UserCommands$1 = Assistant$1.Commands[keyof Assistant$1.Commands];
 
 type UserExternalState = keyof Assistant.ExternalState extends never ? Record<string, unknown> : Assistant.ExternalState[keyof Assistant.ExternalState];
 

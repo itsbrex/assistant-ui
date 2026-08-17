@@ -107,13 +107,13 @@ export {
   useAssistantTransportRuntime,
   useAssistantTransportSendCommand,
   useAssistantTransportState,
-} from "./legacy-runtime/runtime-cores/assistant-transport/useAssistantTransportRuntime";
+} from "./assistant-transport";
 export type {
   AssistantTransportConnectionMetadata,
   AssistantTransportCommand,
   AssistantTransportProtocol,
   SendCommandsRequestBody,
-} from "./legacy-runtime/runtime-cores/assistant-transport/types";
+} from "./assistant-transport";
 
 // --- core ---
 export type {
