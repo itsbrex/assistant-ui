@@ -287,6 +287,10 @@ declare namespace entry_root_exports {
   export { AssistantClient, AssistantClientAccessor, AssistantEventCallback, AssistantEventName, AssistantEventPayload, AssistantEventScope, AssistantEventSelector, AssistantState, AuiConfig, AuiIf, AuiProvider, ClientElement, ClientEvents, ClientMeta, ClientMethods, ClientNames, ClientOutput, ClientSchema, Derived, DerivedElement, RenderChildrenWithAccessor, ScopeRegistry, ScopesConfig, Unsubscribe, attachTransformScopes, forwardTransformScopes, getClientId, normalizeEventSelector, useAssistantClientRef, useAssistantEmit, useAui, useAuiEvent, useAuiState, useClientList, useClientLookup, useClientResource };
 }
 
+declare namespace entry_internal_exports {
+  export { useAssistantClientDestroySignal };
+}
+
 declare const isUserScrollUp: (previous: {
   scrollTop: number;
   scrollHeight: number;
@@ -300,6 +304,8 @@ declare const normalizeEventSelector: <TEvent extends AssistantEventName>(select
 };
 
 declare const observeContentResize: (el: HTMLElement, callback: () => void) => (() => void);
+
+declare const useAssistantClientDestroySignal: () => AbortSignal | undefined;
 
 declare const useAssistantClientRef: () => {
   parent: AssistantClient;
@@ -368,4 +374,4 @@ declare const useConfiguredAui: (parent: AssistantClient, clients: AuiConfig.Inp
 
 declare const viewportOverflows: (metrics: ViewportMetrics) => boolean;
 
-export { entry_client_exports as entry_client, entry_root_exports as entry_root };
+export { entry_client_exports as entry_client, entry_internal_exports as entry_internal, entry_root_exports as entry_root };

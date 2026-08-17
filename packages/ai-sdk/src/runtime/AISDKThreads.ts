@@ -20,6 +20,7 @@ import {
   useChatThread,
   type ChatThreadOptions,
 } from "./useChatThread";
+import { useResourceCleanup } from "./useResourceCleanup";
 
 export type AISDKThreadsOptions<UI_MESSAGE extends UIMessage = UIMessage> =
   Omit<ChatThreadOptions<UI_MESSAGE>, "id" | "transport" | "messages"> & {
@@ -123,11 +124,20 @@ const useAISDKThreads = <UI_MESSAGE extends UIMessage = UIMessage>(
       >(),
   );
 
+  useResourceCleanup(true, () => {
+    for (const { chat } of chats.values()) {
+      void chat.stop().catch(() => {});
+    }
+  });
+
   return useResource(
     InMemoryThreadList({
       thread: (threadId) => AISDKChatThread({ threadId, options, chats }),
       onDelete: (threadId) => {
-        void chats.get(threadId)?.chat.stop();
+        void chats
+          .get(threadId)
+          ?.chat.stop()
+          .catch(() => {});
         chats.delete(threadId);
       },
     }),
