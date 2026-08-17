@@ -4028,6 +4028,8 @@ type ThreadStep = {
 declare const ThreadSuggestion: (_param68: ThreadSuggestionProps) => import("react").JSX.Element;
 
 type ThreadSuggestion$1 = {
+  title?: string;
+  label?: string;
   prompt: string;
 };
 
