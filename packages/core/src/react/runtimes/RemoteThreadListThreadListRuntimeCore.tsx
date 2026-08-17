@@ -27,6 +27,7 @@ import {
   useEffect,
   useId,
 } from "react";
+import { useAui } from "@assistant-ui/store";
 import { create } from "zustand";
 import { AssistantMessageStream } from "assistant-stream";
 import type { ModelContextProvider } from "../../model-context/types";
@@ -55,6 +56,7 @@ export class RemoteThreadListThreadListRuntimeCore
 {
   private _options!: RemoteThreadListOptions;
   private readonly _hookManager: RemoteThreadListHookInstanceManager;
+  private readonly _runtimeAdapters: { modelContext: ModelContextProvider };
 
   private _loadThreadsPromise: Promise<void> | undefined;
   private _loadMorePromise: Promise<void> | undefined;
@@ -183,23 +185,22 @@ export class RemoteThreadListThreadListRuntimeCore
     return dedup;
   }
 
-  private readonly contextProvider: ModelContextProvider;
-
   constructor(
     options: RemoteThreadListOptions,
     contextProvider: ModelContextProvider,
   ) {
     super();
-    this.contextProvider = contextProvider;
 
     this._state.subscribe(() => {
       this._notifySubscribers();
       this._notifyThreadIdChange();
     });
+    this._runtimeAdapters = { modelContext: contextProvider };
     this._hookManager = new RemoteThreadListHookInstanceManager(
       options.runtimeHook,
       this,
     );
+    this._hookManager.__internal_setDefaultAdapters(this._runtimeAdapters);
     this._hookManager.__internal_subscribeRunningChanged(() =>
       this._notifySubscribers(),
     );
@@ -823,6 +824,10 @@ export class RemoteThreadListThreadListRuntimeCore
     });
   }
 
+  public __internal_dispose() {
+    this._hookManager.__internal_dispose();
+  }
+
   public async detach(threadIdOrRemoteId: string): Promise<void> {
     const data = this.getItemById(threadIdOrRemoteId);
     if (!data) throw threadNotFoundError(threadIdOrRemoteId, "detaching it");
@@ -846,18 +851,16 @@ export class RemoteThreadListThreadListRuntimeCore
 
     const boundIds = this.useBoundIds();
     const { Provider } = this.useProvider();
-
-    const adapters = {
-      modelContext: this.contextProvider,
-    };
+    const aui = useAui();
+    const enabled = boundIds.length === 0 || boundIds[0] === id;
 
     return (
-      (boundIds.length === 0 || boundIds[0] === id) && (
-        // only render if the component is the first one mounted
-        <RuntimeAdapterProvider adapters={adapters}>
+      enabled && (
+        <RuntimeAdapterProvider adapters={this._runtimeAdapters}>
           <this._hookManager.__internal_RenderThreadRuntimes
             provider={Provider}
           />
+          <this._hookManager.__internal_Host parentClient={aui} />
         </RuntimeAdapterProvider>
       )
     );
