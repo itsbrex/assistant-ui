@@ -523,15 +523,24 @@ describe("RemoteThreadList", () => {
     handle.destroy();
   });
 
-  it("does not warn when useAdapters is supplied", async () => {
+  it("does not warn when useAdapters is supplied and the factory is keyed", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const adapter = makeAdapter({
         unstable_Provider: () => null,
         unstable_useAdapters: useHistoryAdapters(dummyHistory()),
       });
-      const { handle } = mountList(adapter);
+      const handle = createAssistantClient(
+        AuiConfig({
+          threads: RemoteThreadList({
+            adapter,
+            thread: (id) => withKey(id, StubThread({ threadId: id }) as never),
+          }),
+        }),
+      );
+      handle.subscribe(() => {});
       await handle.getClient().threads.getLoadThreadsPromise();
+      flushTapSync(() => {});
       expect(warn).not.toHaveBeenCalled();
       handle.destroy();
     } finally {
@@ -550,6 +559,30 @@ describe("RemoteThreadList", () => {
       expect(warn).toHaveBeenCalledWith(
         expect.stringContaining("unstable_useAdapters"),
       );
+      handle.destroy();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("warns when a history adapter arrives with an unkeyed thread factory", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const adapter = makeAdapter({
+        unstable_useAdapters: useHistoryAdapters(dummyHistory()),
+      });
+      const handle = createAssistantClient(
+        AuiConfig({
+          threads: RemoteThreadList({
+            adapter,
+            thread: (id) => StubThread({ threadId: id }) as never,
+          }),
+        }),
+      );
+      handle.subscribe(() => {});
+      await handle.getClient().threads.getLoadThreadsPromise();
+      flushTapSync(() => {});
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("unkeyed"));
       handle.destroy();
     } finally {
       warn.mockRestore();
