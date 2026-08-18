@@ -141,6 +141,8 @@ export const useExternalHistory = <TMessage>(
       }
     };
 
+    formatAdapter.pin?.();
+
     const remoteId = optionalThreadListItem()?.getState().remoteId;
     if (!remoteId) {
       setHasLoaded(true);
@@ -207,6 +209,7 @@ export const useExternalHistory = <TMessage>(
           runStartRef.current = Date.now();
           stepBoundariesRef.current = [];
           toolCallCountRef.current = 0;
+          adapter.pin?.();
         }
         // Cancel any pending persist — isRunning went back to true
         if (persistTimerRef.current) {
