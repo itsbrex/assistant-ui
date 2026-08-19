@@ -15,7 +15,7 @@ export const ThreadListItemArchive = ({
   const { archive } = useThreadListItemArchive();
 
   return (
-    <Pressable onPress={archive} {...pressableProps}>
+    <Pressable onPress={archive} accessibilityRole="button" {...pressableProps}>
       {children}
     </Pressable>
   );

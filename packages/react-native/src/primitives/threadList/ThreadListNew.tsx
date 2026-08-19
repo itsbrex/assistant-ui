@@ -15,7 +15,11 @@ export const ThreadListNew = ({
   const { switchToNewThread } = useThreadListNew();
 
   return (
-    <Pressable onPress={switchToNewThread} {...pressableProps}>
+    <Pressable
+      onPress={switchToNewThread}
+      accessibilityRole="button"
+      {...pressableProps}
+    >
       {children}
     </Pressable>
   );

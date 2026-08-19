@@ -38,6 +38,7 @@ export const SuggestionTrigger = ({
     <Pressable
       onPress={trigger}
       disabled={disabledProp ?? disabled}
+      accessibilityRole="button"
       {...pressableProps}
     >
       {children}

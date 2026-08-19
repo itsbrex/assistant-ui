@@ -39,6 +39,7 @@ export const ThreadSuggestion = ({
     <Pressable
       onPress={trigger}
       disabled={disabledProp ?? disabled}
+      accessibilityRole="button"
       {...pressableProps}
     >
       {children}

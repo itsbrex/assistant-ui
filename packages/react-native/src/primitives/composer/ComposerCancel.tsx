@@ -19,6 +19,7 @@ export const ComposerCancel = ({
     <Pressable
       onPress={cancel}
       disabled={disabled ?? hookDisabled}
+      accessibilityRole="button"
       {...pressableProps}
     >
       {children}

@@ -19,6 +19,7 @@ export const BranchPickerPrevious = ({
     <Pressable
       onPress={previous}
       disabled={disabledProp ?? disabled}
+      accessibilityRole="button"
       {...pressableProps}
     >
       {children}
