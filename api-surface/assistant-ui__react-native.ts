@@ -2,7 +2,7 @@ import { StandardSchemaV1 } from "@standard-schema/spec";
 
 import React, { ComponentType, FC, PropsWithChildren, ReactElement, ReactNode } from "react";
 
-import { FlatList, FlatListProps, PressableProps, TextInputProps, TextProps, ViewProps } from "react-native";
+import { FlatList, FlatListProps, PressableProps, PressableStateCallbackType, TextInputProps, TextProps, ViewProps } from "react-native";
 
 declare const ActionBarCopy: (_param0: ActionBarCopyProps) => import("react").JSX.Element;
 
@@ -3110,7 +3110,9 @@ type ThreadListItemsProps = Omit<FlatListProps<string>, "data" | "renderItem"> &
 declare const ThreadListNew: (_param45: ThreadListNewProps) => import("react").JSX.Element;
 
 type ThreadListNewProps = Omit<PressableProps, "children" | "onPress"> & {
-  children: PressableProps["children"];
+  children: ReactNode | ((state: PressableStateCallbackType & {
+    isActive: boolean;
+  }) => ReactNode);
 };
 
 declare const ThreadListRoot: (_param46: ThreadListRootProps) => import("react").JSX.Element;
