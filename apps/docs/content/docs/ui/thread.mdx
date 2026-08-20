@@ -7,6 +7,7 @@ platforms: ["react"]
 import { ThreadSample } from "@/components/docs/samples/thread";
 import { ThreadActionsSample } from "@/components/docs/samples/thread/message-actions";
 import { PreviewCode } from "@/components/docs/preview-code.server";
+import { ThreadWelcomeSuggestionsSample } from "@/components/docs/samples/thread/welcome-with-suggestions";
 import { ThreadBranchSample } from "@/components/docs/samples/thread/branching-response";
 import { ThreadRunningSample } from "@/components/docs/samples/thread/running-response";
 
@@ -117,6 +118,15 @@ While the last assistant response runs, the composer shows the cancel action, no
 ### Suggestions
 
 Display suggested prompts using the Suggestions API. See the [Suggestions guide](/docs/guides/suggestions) for detailed configuration.
+
+An empty thread centers the welcome screen and shows the configured suggestion chips. When you select a chip, the thread sends its prompt.
+
+<PreviewCode
+  file="components/docs/samples/thread/welcome-with-suggestions"
+  name="ChatWithSuggestions"
+>
+  <ThreadWelcomeSuggestionsSample />
+</PreviewCode>
 
 ```tsx
 import type { ReactNode } from "react";
