@@ -5,6 +5,7 @@ platforms: ["react"]
 ---
 
 import { ThreadSample } from "@/components/docs/samples/thread";
+import { ThreadHistorySample } from "@/components/docs/samples/thread/thread-history";
 import { ThreadActionsSample } from "@/components/docs/samples/thread/message-actions";
 import { PreviewCode } from "@/components/docs/preview-code.server";
 import { ThreadWelcomeSuggestionsSample } from "@/components/docs/samples/thread/welcome-with-suggestions";
@@ -94,6 +95,13 @@ export default function Chat() {
   <div className="min-h-8 grow" />
 </AuiIf>
 ```
+
+### Thread with History
+
+The thread shows a completed multi-turn conversation. The composer stays below the
+messages, ready for the next input.
+
+<ThreadHistorySample />
 
 ### Conditional Send/Cancel Button
 
