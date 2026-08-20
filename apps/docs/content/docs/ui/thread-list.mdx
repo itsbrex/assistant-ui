@@ -6,6 +6,7 @@ platforms: ["react"]
 
 import { ThreadListSample } from "@/components/docs/samples/threadlist";
 import { PreviewCode } from "@/components/docs/preview-code.server";
+import { ThreadListSidebarSample } from "@/components/docs/samples/thread-list/sidebar-composition";
 import { ThreadListActiveSample } from "@/components/docs/samples/thread-list/active-threads";
 import { ThreadListNewSample } from "@/components/docs/samples/thread-list/new-thread";
 import { ThreadListArchiveSample } from "@/components/docs/samples/thread-list/archive-thread";
@@ -124,6 +125,14 @@ The list starts empty, thus only the New Thread button shows. Click New Thread t
 
 <PreviewCode file="components/docs/samples/thread-list/new-thread" name="EmptyThreadList">
   <ThreadListNewSample />
+</PreviewCode>
+
+### Sidebar Composition
+
+`ThreadListSidebar` wraps the same `ThreadList` in a complete sidebar shell.
+
+<PreviewCode file="components/docs/samples/thread-list/sidebar-composition" name="ThreadListSidebarDemo" className="p-0">
+  <ThreadListSidebarSample />
 </PreviewCode>
 
 ### Archive a Thread
