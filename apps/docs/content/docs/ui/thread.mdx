@@ -5,6 +5,7 @@ platforms: ["react"]
 ---
 
 import { ThreadSample } from "@/components/docs/samples/thread";
+import { ThreadActionsSample } from "@/components/docs/samples/thread/message-actions";
 import { PreviewCode } from "@/components/docs/preview-code.server";
 import { ThreadBranchSample } from "@/components/docs/samples/thread/branching-response";
 
@@ -164,6 +165,12 @@ Select the refresh action below the assistant response to make an alternate bran
 >
   <ThreadBranchSample />
 </PreviewCode>
+
+### Message Actions
+
+Hover over the first assistant response to show its action bar. When the thread is idle, the last response always shows its actions. The copied `Thread` component sets `hideWhenRunning` and `autohide="not-last"` on `ActionBarPrimitive.Root`. Refer to the [ActionBar primitive](/docs/primitives/action-bar) to change this behavior.
+
+<ThreadActionsSample />
 
 ## Component Overrides
 
