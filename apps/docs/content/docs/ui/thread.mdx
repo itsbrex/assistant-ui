@@ -8,6 +8,7 @@ import { ThreadSample } from "@/components/docs/samples/thread";
 import { ThreadActionsSample } from "@/components/docs/samples/thread/message-actions";
 import { PreviewCode } from "@/components/docs/preview-code.server";
 import { ThreadBranchSample } from "@/components/docs/samples/thread/branching-response";
+import { ThreadRunningSample } from "@/components/docs/samples/thread/running-response";
 
 A complete chat interface that combines message rendering, auto-scrolling, composer input,
 attachments, and conditional UI states. Fully customizable and composable.
@@ -108,6 +109,10 @@ export default function Chat() {
   </ComposerPrimitive.Cancel>
 </AuiIf>
 ```
+
+While the last assistant response runs, the composer shows the cancel action, not the send action, and the action bar of the response stays hidden. Click the stop button to cancel the run. The composer then shows the send action again.
+
+<ThreadRunningSample />
 
 ### Suggestions
 
