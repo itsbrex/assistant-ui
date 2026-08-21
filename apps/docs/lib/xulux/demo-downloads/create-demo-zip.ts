@@ -97,10 +97,10 @@ function assertSnapshotFile(snapshot: SourceSnapshot, snapshotKey: string) {
 }
 
 function flattenUiFlavorImports(source: string) {
-  return source.replace(
-    /@\/components\/ui\/(?:radix|base)\//g,
-    "@/components/ui/",
-  );
+  return source
+    .replace(/@\/components\/ui\/(?:radix|base)\//g, "@/components/ui/")
+    .replace(/@\/components\/pages\/docs\//g, "@/components/docs/")
+    .replace(/@\/components\/pages\/examples\//g, "@/components/examples/");
 }
 
 function targetPathForSourceFile(sourceFile: string) {
@@ -108,9 +108,14 @@ function targetPathForSourceFile(sourceFile: string) {
     return sourceFile
       .replace(/^packages\/ui\/src\//, "")
       .replace(/^components\/ui\/radix\//, "components/ui/")
-      .replace(/^components\/ui\/base\//, "components/ui/")
-      .replace(/^components\/assistant-ui\//, "components/assistant-ui/")
-      .replace(/^lib\//, "lib/");
+      .replace(/^components\/ui\/base\//, "components/ui/");
+  }
+
+  if (sourceFile.startsWith("apps/docs/components/pages/examples/")) {
+    return sourceFile.replace(
+      /^apps\/docs\/components\/pages\/examples\//,
+      "components/examples/",
+    );
   }
 
   if (sourceFile.startsWith("apps/docs/")) {
