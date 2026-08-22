@@ -1,22 +1,21 @@
 "use client";
 
+import { type ReactNode } from "react";
 import {
   AssistantRuntimeProvider,
-  WebSpeechSynthesisAdapter,
-  WebSpeechDictationAdapter,
-  AssistantCloud,
-  useAui,
+  ModelContextClient as ModelContext,
   Tools,
+  useAui,
   type Toolkit,
 } from "@assistant-ui/react";
-import { AssistantChatTransport, useChatRuntime } from "@assistant-ui/ai-sdk";
 import { DevToolsModal } from "@assistant-ui/react-devtools";
-import { ModelContextClient as ModelContext } from "@assistant-ui/react";
-import { lastAssistantMessageIsCompleteWithToolCalls } from "ai";
 import { TerminalIcon } from "lucide-react";
-import { useMemo } from "react";
 import { z } from "zod";
-import { anonymousSessionFetch } from "@/lib/anonymous-session-client";
+import {
+  useAnonymousCloud,
+  useDocsChatRuntime,
+  useSpeechAdapters,
+} from "./chat-runtime";
 
 const artifactsToolkit: Toolkit = {
   render_html: {
@@ -42,30 +41,16 @@ const artifactsToolkit: Toolkit = {
 export function ArtifactsRuntimeProvider({
   children,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
-  const assistantCloud = useMemo(
-    () =>
-      new AssistantCloud({
-        baseUrl: process.env.NEXT_PUBLIC_ASSISTANT_BASE_URL!,
-        anonymous: true,
-      }),
-    [],
-  );
-
-  const runtime = useChatRuntime({
-    transport: new AssistantChatTransport({
-      fetch: anonymousSessionFetch,
-    }),
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
-    adapters: {
-      speech: new WebSpeechSynthesisAdapter(),
-      dictation: new WebSpeechDictationAdapter(),
-    },
-    cloud: assistantCloud,
+  const cloud = useAnonymousCloud();
+  const adapters = useSpeechAdapters({ dictation: true });
+  const runtime = useDocsChatRuntime({
+    cloud,
+    adapters,
+    sendAutomatically: true,
   });
 
-  // Use the Tools API to register artifacts tools
   const aui = useAui({
     tools: Tools({ toolkit: artifactsToolkit }),
     modelContext: ModelContext(),
