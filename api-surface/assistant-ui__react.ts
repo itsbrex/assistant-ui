@@ -3285,6 +3285,7 @@ type ModelContextProvider = {
 
 declare class ModelContextRegistry implements ModelContextProvider {
   #private;
+  constructor();
   getModelContext(): ModelContext$1;
   subscribe(callback: () => void): Unsubscribe$1;
   addTool<TArgs extends Record<string, unknown>, TResult>(tool: AssistantToolProps$1<TArgs, TResult>): ModelContextRegistryToolHandle<TArgs, TResult>;
