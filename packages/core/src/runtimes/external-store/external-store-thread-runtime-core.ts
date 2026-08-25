@@ -45,7 +45,10 @@ import {
   MessageRepository,
 } from "../../runtime/utils/message-repository";
 import { generateId } from "../../utils/id";
-import { ToolInvocationTracker } from "../tool-invocations/ToolInvocationTracker";
+import {
+  ToolInvocationTracker,
+  type ToolExecutionStatus,
+} from "../tool-invocations/ToolInvocationTracker";
 import { EMPTY_QUEUE_ITEMS } from "../../store/scopes/queue-item";
 import type { QuoteInfo } from "../../types/quote";
 import {
@@ -116,6 +119,7 @@ export class ExternalStoreThreadRuntimeCore
   }
   // Unlike `isLoading`: pass `undefined` through to preserve the `getThreadState` fallback.
   public get isRunning(): boolean | undefined {
+    if (this._hasExecutingTools(this._store)) return true;
     return this._store.isRunning;
   }
 
@@ -169,6 +173,51 @@ export class ExternalStoreThreadRuntimeCore
    * snapshot — only when `adapter.unstable_enableToolInvocations === true`.
    */
   private _toolInvocations: ToolInvocationTracker | null = null;
+  private _toolStatuses: ReadonlyMap<string, ToolExecutionStatus> = new Map();
+  private _effectiveIsRunning = false;
+  private _inTrackerUpdate = false;
+  private _pendingRunningRefresh = false;
+
+  /**
+   * Tracker mutations initiated by this class (setState, reset) can publish
+   * status changes synchronously. Re-entering the snapshot pipeline from
+   * inside them would feed the tracker a stale snapshot and consume the
+   * restore arming a reset just installed, so the running refresh is
+   * deferred until the mutation returns and stays off the tracker.
+   */
+  private _runTrackerUpdate(fn: () => void): void {
+    this._inTrackerUpdate = true;
+    try {
+      fn();
+    } finally {
+      this._inTrackerUpdate = false;
+    }
+    if (this._pendingRunningRefresh) {
+      this._pendingRunningRefresh = false;
+      this._refreshEffectiveIsRunning();
+    }
+  }
+
+  private _refreshEffectiveIsRunning(): void {
+    const isRunning = this._getEffectiveIsRunning(this._store);
+    if (this._effectiveIsRunning === isRunning) return;
+    this._effectiveIsRunning = isRunning;
+    this._notifyEventSubscribers(isRunning ? "runStart" : "runEnd", {});
+    this._notifySubscribers();
+  }
+
+  private _hasExecutingTools(store: ExternalStoreAdapter<any>): boolean {
+    if (store.unstable_enableToolInvocations !== true) return false;
+    if (this._toolInvocations === null) return false;
+    for (const status of this._toolStatuses.values()) {
+      if (status.type === "executing") return true;
+    }
+    return false;
+  }
+
+  private _getEffectiveIsRunning(store: ExternalStoreAdapter<any>): boolean {
+    return (store.isRunning ?? false) || this._hasExecutingTools(store);
+  }
 
   public override beginEdit(messageId: string) {
     if (!this._store.onEdit)
@@ -188,12 +237,17 @@ export class ExternalStoreThreadRuntimeCore
   public __internal_setAdapter(store: ExternalStoreAdapter<any>) {
     if (this._store === store) return;
 
-    const isRunning = store.isRunning ?? false;
+    this._updateStoreSnapshot(store);
+  }
+
+  private _updateStoreSnapshot(store: ExternalStoreAdapter<any>) {
+    const previousIsRunning = this._effectiveIsRunning;
     this.isDisabled = store.isDisabled ?? false;
     this.isSendDisabled = store.isSendDisabled ?? false;
 
     const oldStore = this._store as ExternalStoreAdapter<any> | undefined;
     this._store = store;
+    const isRunning = this._getEffectiveIsRunning(store);
     if (oldStore?.queue !== store.queue) {
       this._transformedQueue = undefined;
       store.queue?.__internal_setDispatchTransform?.((message) => {
@@ -245,7 +299,8 @@ export class ExternalStoreThreadRuntimeCore
       if (
         oldStore &&
         oldStore.isRunning === store.isRunning &&
-        oldStore.messageRepository === store.messageRepository
+        oldStore.messageRepository === store.messageRepository &&
+        previousIsRunning === isRunning
       ) {
         this._notifySubscribers();
         return;
@@ -281,7 +336,8 @@ export class ExternalStoreThreadRuntimeCore
           this._converter = new ThreadMessageConverter();
         } else if (
           oldStore.isRunning === store.isRunning &&
-          oldStore.messages === store.messages
+          oldStore.messages === store.messages &&
+          previousIsRunning === isRunning
         ) {
           this._notifySubscribers();
           // no conversion update
@@ -378,8 +434,9 @@ export class ExternalStoreThreadRuntimeCore
     // Common logic for both paths
     if (messages.length > 0) this.ensureInitialized();
 
-    if ((oldStore?.isRunning ?? false) !== (store.isRunning ?? false)) {
-      if (store.isRunning) {
+    this._effectiveIsRunning = isRunning;
+    if (previousIsRunning !== isRunning) {
+      if (isRunning) {
         this._notifyEventSubscribers("runStart", {});
       } else {
         this._notifyEventSubscribers("runEnd", {});
@@ -406,7 +463,7 @@ export class ExternalStoreThreadRuntimeCore
 
     this._messages = this.repository.getMessages();
 
-    this._driveToolInvocations();
+    this._runTrackerUpdate(() => this._driveToolInvocations());
 
     this._notifySubscribers();
   }
@@ -425,6 +482,7 @@ export class ExternalStoreThreadRuntimeCore
       if (this._toolInvocations) {
         this._toolInvocations.reset();
         this._toolInvocations = null;
+        this._toolStatuses = new Map();
         this._store.setToolStatuses?.({});
       }
       return;
@@ -468,7 +526,19 @@ export class ExternalStoreThreadRuntimeCore
             }
           },
           onStatusesChange: (statuses) => {
-            this._store.setToolStatuses?.(Object.fromEntries(statuses));
+            const hadExecutingTools = this._hasExecutingTools(this._store);
+            this._toolStatuses = statuses;
+            try {
+              this._store.setToolStatuses?.(Object.fromEntries(statuses));
+            } finally {
+              if (hadExecutingTools !== this._hasExecutingTools(this._store)) {
+                if (this._inTrackerUpdate) {
+                  this._pendingRunningRefresh = true;
+                } else {
+                  this._updateStoreSnapshot(this._store);
+                }
+              }
+            }
           },
         },
       );
@@ -476,7 +546,7 @@ export class ExternalStoreThreadRuntimeCore
 
     this._toolInvocations.setState({
       messages: this._messages,
-      isRunning: this._store.isRunning ?? false,
+      isRunning: this._getEffectiveIsRunning(this._store),
       ...(this._store.isLoading !== undefined && {
         isLoading: this._store.isLoading,
       }),
@@ -520,7 +590,7 @@ export class ExternalStoreThreadRuntimeCore
       throw new Error("Runtime does not support switching branches.");
 
     // Silently ignore branch switches while running
-    if (this._store.isRunning) {
+    if (this._getEffectiveIsRunning(this._store)) {
       return;
     }
 
@@ -593,7 +663,7 @@ export class ExternalStoreThreadRuntimeCore
       // Buffering does not start a run, so the tool-abort below must wait
       // until the queue flushes. By then the prior run (and its tools) has
       // settled.
-      if (message.steer ?? this._store.isRunning ?? false)
+      if (message.steer ?? this._getEffectiveIsRunning(this._store))
         this._store.queue.steer(message);
       else this._store.queue.enqueue(message);
       return;
@@ -651,7 +721,7 @@ export class ExternalStoreThreadRuntimeCore
     if (!this._store.setMessages)
       throw new Error("Runtime does not support deleting messages.");
 
-    if (this._store.isRunning) {
+    if (this._getEffectiveIsRunning(this._store)) {
       await this._toolInvocations?.abort();
     }
 
@@ -744,7 +814,7 @@ export class ExternalStoreThreadRuntimeCore
     // back here via __internal_setAdapter. The tracker publishes the
     // cleared status map itself, so adapter-side statuses reset only when
     // the tracker is the source of truth.
-    this._toolInvocations?.reset();
+    this._runTrackerUpdate(() => this._toolInvocations?.reset());
 
     this._store.onLoadExternalState(state);
   }
@@ -755,7 +825,7 @@ export class ExternalStoreThreadRuntimeCore
    * without run-cancel semantics (`onCancel`, composer draft restoration).
    */
   public unstable_notifySessionReset(): void {
-    this._toolInvocations?.reset();
+    this._runTrackerUpdate(() => this._toolInvocations?.reset());
     this._store.queue?.__internal_notifyCancelled?.();
   }
 
