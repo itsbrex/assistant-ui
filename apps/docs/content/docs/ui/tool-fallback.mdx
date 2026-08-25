@@ -7,7 +7,6 @@ platforms: ["react"]
 import {
   ToolFallbackSample,
   ToolFallbackCompletedSample,
-  ToolFallbackRunningSample,
   ToolFallbackCancelledSample,
   ToolFallbackStreamingSample,
 } from "@/components/pages/docs/samples/tool-fallback";
@@ -68,12 +67,6 @@ Interactive demo showing the full tool call lifecycle: running → complete.
 Shows the arguments and the structured result for the completed call.
 
 <ToolFallbackCompletedSample />
-
-### Running State
-
-Shows a loading spinner and shimmer animation while the tool is executing.
-
-<ToolFallbackRunningSample />
 
 ### Failed With Error State
 
