@@ -1017,6 +1017,228 @@ describe("A2AClient", () => {
       expect(evt.event.status.message?.role).toBe("agent");
     });
 
+    it("drops a wrapped task or message whose ids are not strings", async () => {
+      const frames = [
+        {
+          task: {
+            id: "t1",
+            context_id: 999,
+            status: { state: "TASK_STATE_WORKING" },
+          },
+        },
+        {
+          message: {
+            message_id: "m1",
+            context_id: 42,
+            role: "ROLE_AGENT",
+            parts: [{ text: "hi" }],
+          },
+        },
+        {
+          message: {
+            message_id: "m2",
+            task_id: { nested: "object" },
+            role: "ROLE_AGENT",
+            parts: [{ text: "hi" }],
+          },
+        },
+      ];
+
+      for (const frame of frames) {
+        fetchMock.mockResolvedValue(
+          mockSSEResponse([`data: ${JSON.stringify(frame)}`, "", ""]),
+        );
+
+        const events: A2AStreamEvent[] = [];
+        for await (const event of client.streamMessage(userMessage)) {
+          events.push(event);
+        }
+
+        expect(events).toEqual([]);
+      }
+    });
+
+    it("drops a wrapped status update whose contextId is not a string", async () => {
+      const sseData = JSON.stringify({
+        status_update: {
+          task_id: "t1",
+          context_id: 999,
+          status: { state: "TASK_STATE_WORKING" },
+        },
+      });
+
+      fetchMock.mockResolvedValue(
+        mockSSEResponse([`data: ${sseData}`, "", ""]),
+      );
+
+      const events: A2AStreamEvent[] = [];
+      for await (const event of client.streamMessage(userMessage)) {
+        events.push(event);
+      }
+
+      expect(events).toEqual([]);
+    });
+
+    it("drops a wrapped artifact update whose ids are not strings", async () => {
+      const artifact = { artifact_id: "a1", parts: [{ text: "hi" }] };
+      for (const ids of [
+        { task_id: 12345, context_id: "c1" },
+        { task_id: "t1", context_id: { nested: "object" } },
+      ]) {
+        const sseData = JSON.stringify({
+          artifact_update: { ...ids, artifact },
+        });
+
+        fetchMock.mockResolvedValue(
+          mockSSEResponse([`data: ${sseData}`, "", ""]),
+        );
+
+        const events: A2AStreamEvent[] = [];
+        for await (const event of client.streamMessage(userMessage)) {
+          events.push(event);
+        }
+
+        expect(events).toEqual([]);
+      }
+    });
+
+    it("normalizes default-valued wrapped status updates", async () => {
+      const sseData = JSON.stringify({
+        status_update: {
+          status: {
+            message: {
+              message_id: "s1",
+              role: "ROLE_AGENT",
+              parts: [{ text: "Waiting..." }],
+            },
+          },
+        },
+      });
+
+      fetchMock.mockResolvedValue(
+        mockSSEResponse([`data: ${sseData}`, "", ""]),
+      );
+
+      const events: A2AStreamEvent[] = [];
+      for await (const event of client.streamMessage(userMessage)) {
+        events.push(event);
+      }
+
+      expect(events).toHaveLength(1);
+      const evt = events[0] as Extract<
+        A2AStreamEvent,
+        { type: "statusUpdate" }
+      >;
+      expect(evt.event).toMatchObject({
+        taskId: "",
+        contextId: "",
+        status: {
+          state: "unspecified",
+          message: { parts: [{ text: "Waiting..." }] },
+        },
+      });
+    });
+
+    it("normalizes null-valued wrapped status defaults", async () => {
+      const sseData = JSON.stringify({
+        status_update: {
+          task_id: null,
+          context_id: null,
+          status: { state: null },
+        },
+      });
+
+      fetchMock.mockResolvedValue(
+        mockSSEResponse([`data: ${sseData}`, "", ""]),
+      );
+
+      const events: A2AStreamEvent[] = [];
+      for await (const event of client.streamMessage(userMessage)) {
+        events.push(event);
+      }
+
+      expect(events).toMatchObject([
+        {
+          type: "statusUpdate",
+          event: {
+            taskId: "",
+            contextId: "",
+            status: { state: "unspecified" },
+          },
+        },
+      ]);
+    });
+
+    it("normalizes ProtoJSON defaults across wrapped event types", async () => {
+      const frames = [
+        {
+          task: {
+            id: "t1",
+            status: {
+              message: {
+                message_id: "m1",
+                role: "ROLE_AGENT",
+                parts: [{ text: "Working..." }],
+              },
+            },
+          },
+        },
+        {
+          message: {
+            message_id: "m2",
+            role: "ROLE_AGENT",
+          },
+        },
+        {
+          artifact_update: {
+            artifact: {},
+          },
+        },
+      ];
+
+      fetchMock.mockResolvedValue(
+        mockSSEResponse(
+          frames
+            .flatMap((frame) => [`data: ${JSON.stringify(frame)}`, ""])
+            .concat(""),
+        ),
+      );
+
+      const events: A2AStreamEvent[] = [];
+      for await (const event of client.streamMessage(userMessage)) {
+        events.push(event);
+      }
+
+      expect(events).toMatchObject([
+        {
+          type: "task",
+          task: {
+            id: "t1",
+            contextId: "",
+            status: { state: "unspecified" },
+          },
+        },
+        {
+          type: "message",
+          message: {
+            messageId: "m2",
+            contextId: "",
+            taskId: "",
+            role: "agent",
+            parts: [],
+          },
+        },
+        {
+          type: "artifactUpdate",
+          event: {
+            taskId: "",
+            contextId: "",
+            artifact: { artifactId: "", parts: [] },
+          },
+        },
+      ]);
+    });
+
     it("cancels the response body when iteration stops early", async () => {
       const sseData = JSON.stringify({
         status_update: {
@@ -1425,6 +1647,14 @@ describe("A2AClient", () => {
           "data: {invalid json}",
           "",
           "data: {}",
+          "",
+          'data: {"task":{}}',
+          "",
+          'data: {"message":{}}',
+          "",
+          'data: {"status_update":{}}',
+          "",
+          'data: {"artifact_update":{}}',
           "",
           `data: ${second}`,
           "",
