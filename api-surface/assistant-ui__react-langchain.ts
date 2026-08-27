@@ -2138,7 +2138,7 @@ declare const convertLangChainBaseMessage: (message: LangChainBaseMessage, metad
 declare const convertLangChainContentBlock: (part: LangChainContentBlock) => ConvertedContentPart | null | undefined;
 
 declare namespace entry_converter_exports {
-  export { LangChainContentBlock, convertLangChainContentBlock, createLangChainStreamingTimingAccessors, getCustomMetadata, getMessageContent, uiMessageToDataPart, withAudioTranscript };
+  export { LangChainContentBlock, convertLangChainContentBlock, createLangChainStreamingTimingAccessors, getCustomMetadata, getMessageContent, getUIMessageParentId, groupUIMessagesByParent, uiMessageToDataPart, withAudioTranscript };
 }
 
 declare const createLangChainStreamingTimingAccessors: <TMessage extends {
@@ -2225,12 +2225,26 @@ declare const getMessageContent: (msg: AppendMessage) => string | ({
   url?: never;
 })[];
 
+declare const getUIMessageParentId: (ui: {
+  metadata?: {
+    message_id?: string;
+    id?: string;
+  } | undefined;
+}) => string | undefined;
+
 declare global {
   interface Window {
     SpeechRecognition?: SpeechRecognitionConstructor;
     webkitSpeechRecognition?: SpeechRecognitionConstructor;
   }
 }
+
+declare const groupUIMessagesByParent: <T extends {
+  metadata?: {
+    message_id?: string;
+    id?: string;
+  } | undefined;
+}>(value: unknown) => Map<string, T[]>;
 
 declare namespace entry_root_exports {
   export { LangChainBaseMessage, LangChainContentBlock, LangChainToolCall, RemoveUIMessage, SubagentDiscoverySnapshot$1 as SubagentDiscoverySnapshot, SubgraphDiscoverySnapshot$1 as SubgraphDiscoverySnapshot, UIMessage, UseStreamRuntimeOptions, convertLangChainBaseMessage, useLangChainError, useLangChainInterruptState, useLangChainInterrupts, useLangChainRespond, useLangChainRespondAll, useLangChainSend, useLangChainSendCommand, useLangChainState, useLangChainStream, useLangChainStreamingTiming, useLangChainSubagents, useLangChainSubgraphs, useLangChainSubmit, useLangChainToolCalls, useStreamRuntime };
