@@ -118,7 +118,9 @@ export const convertLangChainBaseMessage = (
     case "tool":
       return {
         role: "tool",
-        toolName: message.name ?? "",
+        // `joinExternalMessages` only checks the name against the tool call
+        // when it is non-null, so an empty name manufactures a mismatch.
+        toolName: message.name || undefined,
         toolCallId: message.tool_call_id ?? "",
         result: message.content,
         artifact: message.artifact,
