@@ -54,6 +54,15 @@ export {
   ComposerPrimitiveAttachmentDropzone,
 } from "./primitives/composerAttachments";
 export { MessagePrimitiveAttachments } from "./primitives/messageAttachments";
+export { ErrorPrimitiveRoot, ErrorPrimitiveMessage } from "./primitives/error";
+export { ThreadPrimitiveRoot } from "./primitives/thread";
+export { MessagePrimitiveRoot } from "./primitives/message";
+export {
+  ThreadListPrimitiveLoadMore,
+  ThreadListItemPrimitiveArchive,
+  ThreadListItemPrimitiveUnarchive,
+  ThreadListItemPrimitiveDelete,
+} from "./primitives/threadListStructural";
 
 export {
   AuiConfig,
