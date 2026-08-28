@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import "tsx/esm";
 
 const {
   collectAttributeSelectorValues,
+  buildRegistry,
   createBaseRegistryItem,
   createRadixRegistryItem,
   expandBundledRegistryDependencies,
@@ -16,6 +18,7 @@ const {
   validateEmittedSpecifierHygiene,
   validateStyleScopedDependencies,
   validateUniversalItems,
+  validateVueFlavorContent,
   validateVariantExportParity,
   validateVariantSlotParity,
   validateVariantTreesDiffer,
@@ -58,6 +61,159 @@ const createBuilt = (
   sourceContentsByOutputPath:
     sourceContentsByOutputPath ??
     new Map(files.map(([filePath, content]) => [filePath, content])),
+});
+
+test("vue registry build emits a self-contained thread with its type-only dependency", async () => {
+  const { registry, stagedVueRegistry } = await import("../src/registry.ts");
+  await buildRegistry(registry, stagedVueRegistry);
+
+  const [registryContent, threadContent] = await Promise.all([
+    readFile("dist/vue/registry.json", "utf8"),
+    readFile("dist/vue/thread.json", "utf8"),
+  ]);
+  const vueIndex = JSON.parse(registryContent);
+  const thread = JSON.parse(threadContent);
+  const threadFile = thread.files.find(
+    (file) => file.path === "components/assistant-ui/thread.vue",
+  );
+
+  assert.ok(
+    threadFile,
+    "vue thread registry output includes components/assistant-ui/thread.vue",
+  );
+  assert.deepEqual(
+    vueIndex.items.map((item) => item.name),
+    ["thread"],
+  );
+  assert.deepEqual(thread.dependencies, [
+    "@assistant-ui/core",
+    "@assistant-ui/vue",
+    "@lucide/vue",
+  ]);
+  assert.equal("target" in threadFile, false);
+  assert.match(
+    threadFile.content,
+    /import Message from "@\/components\/assistant-ui\/message\.vue"/,
+  );
+});
+
+test("emitted vue artifacts compile as SFCs and pass the vue purity gate", async () => {
+  const { parse, compileScript } = await import("@vue/compiler-sfc");
+  const thread = JSON.parse(await readFile("dist/vue/thread.json", "utf8"));
+  const emitted = thread.files.map((file) => [file.path, file.content]);
+  assert.deepEqual(emitted.map(([outputPath]) => outputPath).sort(), [
+    "components/assistant-ui/message.vue",
+    "components/assistant-ui/thread.vue",
+  ]);
+
+  for (const [outputPath, content] of emitted) {
+    const { descriptor, errors } = parse(content, { filename: outputPath });
+    assert.deepEqual(errors, []);
+    const compiled = compileScript(descriptor, { id: outputPath });
+    assert.ok(compiled.content.length > 0);
+  }
+
+  validateVueFlavorContent([createBuilt("thread", emitted)]);
+});
+
+test("the production vue registry stays empty until the publish flip", async () => {
+  const { registry, vueRegistry } = await import("../src/registry.ts");
+  assert.deepEqual(vueRegistry, []);
+  await buildRegistry(registry, vueRegistry);
+  const vueIndex = JSON.parse(await readFile("dist/vue/registry.json", "utf8"));
+  assert.deepEqual(vueIndex.items, []);
+});
+
+test("vue flavor content validation rejects forbidden package subpaths", () => {
+  assert.throws(
+    () =>
+      validateVueFlavorContent([
+        createBuilt("thread", [
+          [
+            "components/assistant-ui/thread.vue",
+            '<script setup lang="ts">\nimport { jsx } from "react/jsx-runtime";\nimport "react-dom/client";\nimport "@assistant-ui/react/runtime";\nimport { CopyIcon } from "lucide-react";\nimport "@assistant-ui/react-ui/lib/utils";\n</script>',
+          ],
+        ]),
+      ]),
+    (error) => {
+      assert.equal(error instanceof Error, true);
+      assert.match(error.message, /^Invalid vue flavor content:/);
+      assert.ok(
+        error.message.includes(
+          '- thread: vue tree file components/assistant-ui/thread.vue imports forbidden "react/jsx-runtime"',
+        ),
+      );
+      assert.ok(
+        error.message.includes(
+          '- thread: vue tree file components/assistant-ui/thread.vue imports forbidden "react-dom/client"',
+        ),
+      );
+      assert.ok(
+        error.message.includes(
+          '- thread: vue tree file components/assistant-ui/thread.vue imports forbidden "@assistant-ui/react/runtime"',
+        ),
+      );
+      assert.ok(
+        error.message.includes(
+          '- thread: vue tree file components/assistant-ui/thread.vue imports forbidden "lucide-react"',
+        ),
+      );
+      assert.ok(
+        error.message.includes(
+          '- thread: vue tree file components/assistant-ui/thread.vue imports forbidden "@assistant-ui/react-ui/lib/utils"',
+        ),
+      );
+      return true;
+    },
+  );
+});
+
+test("vue flavor content validation scans script tags closed with whitespace", () => {
+  assert.throws(
+    () =>
+      validateVueFlavorContent([
+        createBuilt("thread", [
+          [
+            "components/assistant-ui/thread.vue",
+            '<script setup lang="ts">\nimport { createElement } from "react";\n</script \t\nbar>',
+          ],
+        ]),
+      ]),
+    (error) => {
+      assert.equal(error instanceof Error, true);
+      assert.match(error.message, /^Invalid vue flavor content:/);
+      assert.ok(
+        error.message.includes(
+          '- thread: vue tree file components/assistant-ui/thread.vue imports forbidden "react"',
+        ),
+      );
+      return true;
+    },
+  );
+});
+
+test("vue flavor content validation rejects unsupported script languages", () => {
+  assert.throws(
+    () =>
+      validateVueFlavorContent([
+        createBuilt("thread", [
+          [
+            "components/assistant-ui/thread.vue",
+            '<script setup lang="tsx">\nconst thread = <div />;\n</script>',
+          ],
+        ]),
+      ]),
+    (error) => {
+      assert.equal(error instanceof Error, true);
+      assert.match(error.message, /^Invalid vue flavor content:/);
+      assert.ok(
+        error.message.includes(
+          '- thread: vue tree file components/assistant-ui/thread.vue has unsupported script lang "tsx"',
+        ),
+      );
+      return true;
+    },
+  );
 });
 
 test("base registry item merges, rewrites, and deduplicates dependencies in order", () => {

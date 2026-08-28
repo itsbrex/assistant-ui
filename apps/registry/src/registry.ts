@@ -1752,3 +1752,35 @@ export const registry: RegistryItem[] = [
     ],
   },
 ];
+
+export const vueRegistry: RegistryItem[] = [];
+
+/**
+ * Vue items staged for the `@assistant-ui/vue` publish flip. The build
+ * machinery and tests exercise them, but they stay out of the emitted
+ * registry until the package they install is public.
+ */
+export const stagedVueRegistry: RegistryItem[] = [
+  {
+    name: "thread",
+    type: "registry:component",
+    title: "Thread",
+    description:
+      "Chat container with message list, composer, auto scroll, and accessibility built in.",
+    files: [
+      {
+        type: "registry:component",
+        path: "components/assistant-ui/thread.vue",
+        sourcePath:
+          "../../packages/ui/src/components/assistant-ui-vue/thread.vue",
+      },
+      {
+        type: "registry:component",
+        path: "components/assistant-ui/message.vue",
+        sourcePath:
+          "../../packages/ui/src/components/assistant-ui-vue/message.vue",
+      },
+    ],
+    dependencies: ["@assistant-ui/core", "@assistant-ui/vue", "@lucide/vue"],
+  },
+];
