@@ -247,6 +247,38 @@ const removeRefreshToken = (baseUrl: string): void => {
   } catch {}
 };
 
+// In-flight sharing follows refresh-token storage scope to isolate server requests.
+const anonymousAuthTokenRequests = new WeakMap<
+  Storage,
+  Map<string, Promise<string | null>>
+>();
+
+const getSharedAnonymousAuthToken = (
+  baseUrl: string,
+  requestToken: () => Promise<string | null>,
+): Promise<string | null> => {
+  const storage = getLocalStorage();
+  if (!storage) return requestToken();
+
+  let storageRequests = anonymousAuthTokenRequests.get(storage);
+  if (!storageRequests) {
+    storageRequests = new Map();
+    anonymousAuthTokenRequests.set(storage, storageRequests);
+  }
+
+  const activeRequest = storageRequests.get(baseUrl);
+  if (activeRequest) return activeRequest;
+
+  const request = requestToken();
+  const sharedRequest = request.finally(() => {
+    if (storageRequests.get(baseUrl) === sharedRequest) {
+      storageRequests.delete(baseUrl);
+    }
+  });
+  storageRequests.set(baseUrl, sharedRequest);
+  return sharedRequest;
+};
+
 export class AssistantCloudAnonymousAuthStrategy implements AssistantCloudAuthStrategy {
   public readonly strategy = "anon";
 
@@ -255,7 +287,7 @@ export class AssistantCloudAnonymousAuthStrategy implements AssistantCloudAuthSt
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
-    this.jwtStrategy = new AssistantCloudJWTAuthStrategy(async () => {
+    const requestAuthToken = async (): Promise<string | null> => {
       const currentTime = Date.now();
       const storedRefreshToken = readRefreshToken(this.baseUrl);
 
@@ -318,7 +350,10 @@ export class AssistantCloudAnonymousAuthStrategy implements AssistantCloudAuthSt
         ),
       );
       return accessToken;
-    });
+    };
+    this.jwtStrategy = new AssistantCloudJWTAuthStrategy(() =>
+      getSharedAnonymousAuthToken(this.baseUrl, requestAuthToken),
+    );
   }
 
   public async getAuthHeaders(): Promise<Record<string, string> | false> {
