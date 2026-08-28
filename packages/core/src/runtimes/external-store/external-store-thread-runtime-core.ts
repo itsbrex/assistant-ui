@@ -246,6 +246,14 @@ export class ExternalStoreThreadRuntimeCore
     const oldStore = this._store as ExternalStoreAdapter<any> | undefined;
     this._store = store;
     const isRunning = this._getEffectiveIsRunning(store);
+    const repositoryInstance = store.unstable_messageRepositoryInstance;
+    const repositoryChanged =
+      repositoryInstance !== undefined &&
+      repositoryInstance !== this.repository;
+    if (repositoryChanged) {
+      this.repository = repositoryInstance;
+      this._pendingDeleteEvictions.clear();
+    }
     if (oldStore?.queue !== store.queue) {
       this._transformedQueue = undefined;
       store.queue?.__internal_setDispatchTransform?.((message) => {
@@ -296,6 +304,7 @@ export class ExternalStoreThreadRuntimeCore
       // Handle messageRepository
       if (
         oldStore &&
+        !repositoryChanged &&
         oldStore.isRunning === store.isRunning &&
         oldStore.messageRepository === store.messageRepository &&
         previousIsRunning === isRunning
@@ -308,7 +317,11 @@ export class ExternalStoreThreadRuntimeCore
       const headId =
         store.messageRepository.headId ?? incoming.at(-1)?.message.id ?? null;
 
-      if (oldStore && oldStore.messageRepository === store.messageRepository) {
+      if (
+        oldStore &&
+        !repositoryChanged &&
+        oldStore.messageRepository === store.messageRepository
+      ) {
         this.repository.resetHead(headId);
         messages = this.repository.getMessages();
       } else {
@@ -333,6 +346,7 @@ export class ExternalStoreThreadRuntimeCore
         if (oldStore.convertMessage !== store.convertMessage) {
           this._converter = new ThreadMessageConverter();
         } else if (
+          !repositoryChanged &&
           oldStore.isRunning === store.isRunning &&
           oldStore.messages === store.messages &&
           previousIsRunning === isRunning
@@ -451,6 +465,9 @@ export class ExternalStoreThreadRuntimeCore
 
     this._messages = this.repository.getMessages();
 
+    if (repositoryChanged) {
+      this._runTrackerUpdate(() => this._toolInvocations?.reset());
+    }
     this._runTrackerUpdate(() => this._driveToolInvocations());
 
     this._notifySubscribers();
