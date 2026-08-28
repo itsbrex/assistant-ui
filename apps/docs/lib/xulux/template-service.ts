@@ -1,46 +1,40 @@
-import { fetchSandboxResource } from "./fetch-sandbox.js";
 import type {
-  XuluxCatalog,
-  XuluxCatalogTemplate,
-  XuluxCatalogVersion,
-} from "./types.js";
-
-// ---------------------------------------------------------------------------
-// Local, catalog-backed template operations for the assistant-ui template MCP tools.
-// These functions never mutate any UI. Preview operations only return URLs.
-// ---------------------------------------------------------------------------
+  XuluxMcpCatalog,
+  XuluxMcpCatalogTemplate,
+  XuluxMcpCatalogVersion,
+} from "./mcp-catalog";
+import {
+  fetchPreviewSession,
+  fetchTemplateContract,
+  hasConfig,
+  toAbsolute,
+  withVersion,
+  type TemplatePreviewSession,
+} from "./sandbox-contract";
 
 export interface ResolvedTemplate {
-  template: XuluxCatalogTemplate;
-  version: XuluxCatalogVersion | null;
+  template: XuluxMcpCatalogTemplate;
+  version: XuluxMcpCatalogVersion | null;
 }
 
-/**
- * Resolves a template by id, preserving the app-route semantics:
- * - exact `templateId` match wins
- * - version-specific entry ids (e.g. `webpage-assistant-product-docs`)
- *   remain valid inputs
- * - explicit `versionId` wins when provided
- * - otherwise the template's default version is used
- */
 export function resolveTemplate(
-  catalog: XuluxCatalog,
+  catalog: XuluxMcpCatalog,
   templateId: string,
   versionId?: string | undefined,
 ): ResolvedTemplate | null {
   let template = catalog.templates.find(
-    (t) => t.templateId === templateId || t.id === templateId,
+    (candidate) =>
+      candidate.templateId === templateId || candidate.id === templateId,
   );
   let impliedVersionId: string | undefined;
 
   if (!template) {
-    // Version-specific entry id such as `webpage-assistant-product-docs`.
-    template = catalog.templates.find((t) =>
-      t.versions.some((v) => v.entryId === templateId),
+    template = catalog.templates.find((candidate) =>
+      candidate.versions.some((version) => version.entryId === templateId),
     );
     if (template) {
       impliedVersionId = template.versions.find(
-        (v) => v.entryId === templateId,
+        (version) => version.entryId === templateId,
       )?.id;
     }
   }
@@ -50,7 +44,9 @@ export function resolveTemplate(
   const effectiveVersionId =
     versionId ?? impliedVersionId ?? template.versionId;
   const version = effectiveVersionId
-    ? (template.versions.find((v) => v.id === effectiveVersionId) ?? null)
+    ? (template.versions.find(
+        (candidate) => candidate.id === effectiveVersionId,
+      ) ?? null)
     : null;
 
   return { template, version };
@@ -67,40 +63,25 @@ export interface TemplateListItem {
   kind: "template" | "example";
 }
 
-export function listTemplates(catalog: XuluxCatalog): {
+export function listTemplates(catalog: XuluxMcpCatalog): {
   templates: TemplateListItem[];
 } {
   return {
-    templates: catalog.templates.map((t) => ({
-      id: t.templateId,
-      name: t.name,
-      summary: t.summary,
-      assistantPlacement: t.assistantPlacement,
-      features: t.features,
-      customizable: t.customizable,
-      versions: t.versions.map((v) => ({
-        id: v.id,
-        name: v.name,
-        description: v.description,
+    templates: catalog.templates.map((template) => ({
+      id: template.templateId,
+      name: template.name,
+      summary: template.summary,
+      assistantPlacement: template.assistantPlacement,
+      features: template.features,
+      customizable: template.customizable,
+      versions: template.versions.map((version) => ({
+        id: version.id,
+        name: version.name,
+        description: version.description,
       })),
-      kind: t.kind,
+      kind: template.kind,
     })),
   };
-}
-
-async function fetchTemplateContract(
-  sandboxBaseUrl: string,
-  versionId: string | null,
-): Promise<Record<string, unknown> | null> {
-  try {
-    const url = new URL("/api/template/contract", sandboxBaseUrl);
-    if (versionId) url.searchParams.set("v", versionId);
-    const res = await fetchSandboxResource(url.toString());
-    if (!res.ok) return null;
-    return (await res.json()) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
 }
 
 export interface TemplateDetails {
@@ -132,7 +113,7 @@ export interface TemplateError {
 }
 
 export async function getTemplateDetails(
-  catalog: XuluxCatalog,
+  catalog: XuluxMcpCatalog,
   input: { templateId: string; versionId?: string | undefined },
 ): Promise<TemplateDetails | TemplateError> {
   const resolved = resolveTemplate(catalog, input.templateId, input.versionId);
@@ -140,7 +121,7 @@ export async function getTemplateDetails(
     return {
       error: `Template "${input.templateId}" not found.`,
       retryHint:
-        "Call assistantUITemplates and use one of the returned template ids.",
+        "Call list_templates and use one of the returned template ids.",
     };
   }
 
@@ -172,7 +153,7 @@ export async function getTemplateDetails(
     return {
       error: `No authoring schema found for template "${template.templateId}".`,
       retryHint:
-        "The catalog may be in degraded fallback mode. Retry when live catalog access is restored.",
+        "Call list_templates and choose a template with a non-empty customizable list, then call read_template for its authoring schema.",
     };
   }
 
@@ -218,23 +199,6 @@ export async function getTemplateDetails(
   };
 }
 
-function toAbsolute(baseUrl: string, url: string): string {
-  if (/^https?:\/\//.test(url)) return url;
-  return `${baseUrl}${url.startsWith("/") ? "" : "/"}${url}`;
-}
-
-function withVersion(url: string, versionId: string | undefined): string {
-  if (!versionId) return url;
-  const [path, query = ""] = url.split("?");
-  const params = new URLSearchParams(query);
-  if (!params.has("v")) params.set("v", versionId);
-  return `${path}?${params.toString()}`;
-}
-
-function hasConfig(config: Record<string, unknown> | undefined): boolean {
-  return !!config && Object.keys(config).length > 0;
-}
-
 export interface TemplatePreviewResult {
   success: boolean;
   templateId: string;
@@ -251,7 +215,7 @@ export interface TemplatePreviewResult {
 }
 
 export async function createTemplatePreview(
-  catalog: XuluxCatalog,
+  catalog: XuluxMcpCatalog,
   input: {
     templateId: string;
     versionId?: string | undefined;
@@ -266,7 +230,7 @@ export async function createTemplatePreview(
       versionId: input.versionId ?? null,
       error: `Template "${input.templateId}" not found.`,
       retryHint:
-        "Call assistantUITemplates and use one of the returned template ids.",
+        "Call list_templates and use one of the returned template ids.",
     };
   }
 
@@ -281,7 +245,7 @@ export async function createTemplatePreview(
         versionId: null,
         error: `Template "${tid}" is a fixed demo and does not support config.`,
         retryHint:
-          "Call assistantUITemplateDetails for this template. If no configRoots are returned, call assistantUITemplatePreview again without config or choose a configurable hosted template.",
+          "Call read_template for this template. If no configRoots are returned, call preview_template again without config or choose a configurable hosted template.",
       };
     }
 
@@ -291,8 +255,7 @@ export async function createTemplatePreview(
         templateId: tid,
         versionId: null,
         error: `Fixed demo "${tid}" has no preview URL in the catalog.`,
-        retryHint:
-          "The catalog may be in degraded fallback mode. Retry when live catalog access is restored.",
+        retryHint: "Call list_templates and choose another hosted entry.",
       };
     }
 
@@ -316,7 +279,7 @@ export async function createTemplatePreview(
       versionId: version?.id ?? template.versionId,
       error: `Template "${tid}" has no sandbox URL in the catalog.`,
       retryHint:
-        "The catalog may be in degraded fallback mode. Retry when live catalog access is restored.",
+        "Call list_templates and choose another configurable template.",
     };
   }
 
@@ -324,33 +287,26 @@ export async function createTemplatePreview(
 
   if (hasConfig(input.config)) {
     try {
-      const sessionUrl = new URL("/api/preview/session", baseUrl);
-      if (effectiveVersionId)
-        sessionUrl.searchParams.set("v", effectiveVersionId);
-      const res = await fetchSandboxResource(sessionUrl.toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input.config),
-      });
-      if (!res.ok) {
-        const details = await res.text();
+      const response = await fetchPreviewSession(
+        baseUrl,
+        effectiveVersionId,
+        input.config,
+      );
+      if (!response.ok) {
+        const details = await response.text();
         return {
           success: false,
           templateId: tid,
           versionId: effectiveVersionId,
-          error: `Preview session failed: HTTP ${res.status}`,
+          error: `Preview session failed: HTTP ${response.status}`,
           details,
           retryHint:
             "Check validationWarnings for the specific fields that failed. " +
-            "Call assistantUITemplateDetails for this template and use configRoots schemas to correct the config. " +
+            "Call read_template for this template and use configRoots schemas to correct the config. " +
             "Pass only hostUi, assistant, and brandTheme at the top level.",
         };
       }
-      const data = (await res.json()) as {
-        previewUrl?: string;
-        downloadUrl?: string;
-        validationWarnings?: unknown[];
-      };
+      const data = (await response.json()) as TemplatePreviewSession;
       if (!data.previewUrl) {
         return {
           success: false,
@@ -379,12 +335,12 @@ export async function createTemplatePreview(
         summary: `Created a configured preview session for ${template.name}. URLs point at the hosted sandbox; nothing was opened in any UI.`,
         validationWarnings: data.validationWarnings ?? [],
       };
-    } catch (err) {
+    } catch (error) {
       return {
         success: false,
         templateId: tid,
         versionId: effectiveVersionId,
-        error: err instanceof Error ? err.message : String(err),
+        error: error instanceof Error ? error.message : String(error),
       };
     }
   }
