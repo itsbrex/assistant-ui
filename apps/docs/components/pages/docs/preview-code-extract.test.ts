@@ -5,7 +5,7 @@ import {
 } from "./preview-code-extract";
 
 const source = `
-import type { ReactNode } from "react";
+import type { FC, ReactNode } from "react";
 
 export function PlainSpecimen() {
   return <div>{"}"}</div>;
@@ -22,6 +22,22 @@ export function AnnotatedSpecimen(): ReactNode {
 export function TrailingSpecimen() {
   return <div>trailing</div>;
 }
+
+export const TypedSpecimen: FC = () => {
+  return <div>typed</div>;
+};
+
+export const ExpressionSpecimen = () => (
+  <div>
+    <span>expression</span>
+  </div>
+);
+
+export function GuardSpecimen() {
+  return <div>guard</div>;
+}
+
+export const CompoundSpecimen = () => (compose)();
 `;
 
 describe("extractFunctionCode", () => {
@@ -39,6 +55,28 @@ describe("extractFunctionCode", () => {
     expect(code).toContain("<span>ok</span>");
     expect(code.endsWith("}")).toBe(true);
     expect(code).not.toContain("TrailingSpecimen");
+  });
+
+  it("extracts a const arrow with a type annotation", () => {
+    const code = extractFunctionCode(source, "TypedSpecimen");
+    expect(code).toContain("export const TypedSpecimen: FC = () => {");
+    expect(code).toContain("<div>typed</div>");
+    expect(code.endsWith("}")).toBe(true);
+    expect(code).not.toContain("ExpressionSpecimen");
+  });
+
+  it("extracts a const arrow with a parenthesized expression body", () => {
+    const code = extractFunctionCode(source, "ExpressionSpecimen");
+    expect(code).toContain("export const ExpressionSpecimen = () => (");
+    expect(code).toContain("<span>expression</span>");
+    expect(code.endsWith(");")).toBe(true);
+    expect(code).not.toContain("GuardSpecimen");
+  });
+
+  it("reports an arrow whose parens cover only part of the body", () => {
+    expect(extractFunctionCode(source, "CompoundSpecimen")).toBe(
+      "// Could not parse function: CompoundSpecimen",
+    );
   });
 
   it("keeps imports only for identifiers the code uses as words", () => {
