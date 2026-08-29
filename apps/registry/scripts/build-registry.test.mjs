@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile, writeFile, mkdir } from "node:fs/promises";
 import test from "node:test";
 import "tsx/esm";
 
@@ -111,10 +111,7 @@ test("vue registry build emits self-contained staged items", async () => {
     "@lucide/vue",
   ]);
   assert.equal("target" in threadListFile, false);
-  assert.match(
-    threadFile.content,
-    /import Message from "@\/components\/assistant-ui\/message\.vue"/,
-  );
+  assert.match(threadFile.content, /import Message from "\.\/message\.vue"/);
   assert.match(threadListFile.content, /from "reka-ui"/);
 });
 
@@ -161,6 +158,34 @@ test("the production vue registry stays empty until the publish flip", async () 
   await buildRegistry(registry, vueRegistry);
   const vueIndex = JSON.parse(await readFile("dist/vue/registry.json", "utf8"));
   assert.deepEqual(vueIndex.items, []);
+});
+
+test("vue payload parsing fails on a malformed sfc", () => {
+  assert.throws(
+    () =>
+      validateVueFlavorContent([
+        {
+          name: "broken",
+          payload: {
+            files: [
+              {
+                path: "components/assistant-ui/broken.vue",
+                content:
+                  "<script setup>const a = 1</script>\n<script setup>const b = 2</script>",
+              },
+            ],
+          },
+        },
+      ]),
+    /Failed to parse/,
+  );
+});
+
+test("vue registry build removes stale output", async () => {
+  await mkdir("dist/vue", { recursive: true });
+  await writeFile("dist/vue/stale.json", "{}", "utf8");
+  await buildRegistry([], []);
+  await assert.rejects(() => access("dist/vue/stale.json"));
 });
 
 test("vue flavor content validation rejects forbidden package subpaths", () => {
