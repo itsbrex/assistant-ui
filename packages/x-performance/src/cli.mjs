@@ -6,12 +6,15 @@ import {
   writeFileSync,
   copyFileSync,
   rmSync,
+  symlinkSync,
   existsSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { cpus, arch, platform, tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { REF_PACKAGE_DIRS } from "./ref-packages.mjs";
+import { meanRows, pairNoise, rowVerdict } from "./paired-compare.mjs";
 
 const pkgRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const perfDir = join(pkgRoot, ".perf");
@@ -88,10 +91,13 @@ const record = (outName, runs) => {
   mkdirSync(perfDir, { recursive: true });
   const best = new Map();
   for (let i = 0; i < runs; i++) {
-    console.log(`run ${i + 1}/${runs}...`);
+    console.error(`run ${i + 1}/${runs}...`);
     mergeBest(best, runSuite());
   }
-  const doc = { env: { ...envStamp(), runs }, benchmarks: [...best.values()] };
+  const doc = {
+    env: { ...envStamp(), runs, estimator: "best" },
+    benchmarks: [...best.values()],
+  };
   const out = join(perfDir, outName ?? `record-${Date.now()}.json`);
   writeFileSync(out, JSON.stringify(doc, null, 2));
   copyFileSync(out, join(perfDir, "latest.json"));
@@ -103,7 +109,7 @@ const record = (outName, runs) => {
 const fmt = (ms) =>
   ms >= 1 ? `${ms.toFixed(3)}ms` : `${(ms * 1000).toFixed(2)}µs`;
 
-const renderCompare = (a, b, aLabel, bLabel) => {
+const renderCompare = (a, b, aLabel, bLabel, spreads) => {
   const envKeys = ["cpu", "cores", "arch", "platform", "node"];
   if (envKeys.some((k) => a.env[k] !== b.env[k])) {
     const show = (e) => envKeys.map((k) => e[k]).join("/");
@@ -111,21 +117,24 @@ const renderCompare = (a, b, aLabel, bLabel) => {
       `warning: environments differ (${show(a.env)} vs ${show(b.env)}); deltas are not comparable\n`,
     );
   }
+  if (a.env.estimator !== b.env.estimator) {
+    console.warn(
+      `warning: recordings use different estimators (${a.env.estimator} vs ${b.env.estimator}); best-of runs systematically lower than mean-of, so deltas are not comparable\n`,
+    );
+  }
   const bById = new Map(b.benchmarks.map((x) => [x.id, x]));
   const rows = [];
   for (const ba of a.benchmarks) {
     const bb = bById.get(ba.id);
     if (!bb) continue;
-    const delta = ((bb.mean - ba.mean) / ba.mean) * 100;
-    const noise = Math.max(2 * Math.max(ba.rme ?? 0, bb.rme ?? 0), 3);
-    const significant = Math.abs(delta) > noise;
+    const { delta, noise, verdict } = rowVerdict(ba, bb, spreads?.get(ba.id));
     rows.push({
       benchmark: ba.id,
       [aLabel]: fmt(ba.mean),
       [bLabel]: fmt(bb.mean),
       delta: `${delta >= 0 ? "+" : ""}${delta.toFixed(1)}%`,
       threshold: `${noise.toFixed(1)}%`,
-      verdict: !significant ? "~same" : delta > 0 ? "SLOWER" : "FASTER",
+      verdict,
     });
   }
   console.table(rows);
@@ -136,7 +145,7 @@ const renderCompare = (a, b, aLabel, bLabel) => {
   for (const x of b.benchmarks.filter((x) => !aIds.has(x.id)))
     console.warn(`unmatched: only in b: ${x.id}`);
   console.log(
-    `a: ${a.env.sha}${a.env.dirty ? " (dirty)" : ""} @ ${a.env.date}\nb: ${b.env.sha}${b.env.dirty ? " (dirty)" : ""} @ ${b.env.date}\nverdict is "~same" unless |delta| > max(2×rme, 3%)`,
+    `a: ${a.env.sha}${a.env.dirty ? " (dirty)" : ""} @ ${a.env.date}\nb: ${b.env.sha}${b.env.dirty ? " (dirty)" : ""} @ ${b.env.date}\nverdict is "~same" unless |delta| > max(2×rme, 3%, 2×SE of the pair deltas)`,
   );
 };
 
@@ -162,17 +171,17 @@ const ensureRefWorktree = (ref) => {
     execFileSync("git", ["worktree", "prune", "--expire", "now"], {
       cwd: repoRoot,
     });
-    console.log(`creating ref worktree for ${ref} (${sha}) at ${wt}`);
+    console.error(`creating ref worktree for ${ref} (${sha}) at ${wt}`);
     execFileSync("git", ["worktree", "add", "--detach", wt, sha], {
       cwd: repoRoot,
-      stdio: "inherit",
+      stdio: ["ignore", 2, "inherit"],
     });
   }
   if (!existsSync(marker)) {
-    console.log("installing and building ref packages (one-time per ref)...");
+    console.error("installing and building ref packages (one-time per ref)...");
     execFileSync("pnpm", ["install"], {
       cwd: wt,
-      stdio: "inherit",
+      stdio: ["ignore", 2, "inherit"],
       env: { ...process.env, CI: "true" },
     });
     const filters = Object.keys(REF_PACKAGE_DIRS).map(
@@ -180,44 +189,97 @@ const ensureRefWorktree = (ref) => {
     );
     execFileSync("pnpm", ["turbo", "run", "build", ...filters], {
       cwd: wt,
-      stdio: "inherit",
+      stdio: ["ignore", 2, "inherit"],
     });
     writeFileSync(marker, sha);
   }
+  pinReactToCurrentTree(wt);
   return { wt, sha, marker };
 };
 
-const compareRef = (ref, runs) => {
+// Ref dists are externalized, so Node resolves their react imports from the
+// ref worktree's node_modules and would mount a second React instance (hooks
+// then crash with a null dispatcher). Repoint each ref package's react and
+// react-dom at the current tree's copies; symlinks resolve to the same
+// realpath, so both sides share one module instance. This deliberately
+// neutralizes react version differences between head and base: a cross-ref
+// table spanning a react bump measures the packages, never react itself.
+const pinReactToCurrentTree = (wt) => {
+  const requireFromPkg = createRequire(join(pkgRoot, "package.json"));
+  for (const dep of ["react", "react-dom"]) {
+    const target = dirname(requireFromPkg.resolve(`${dep}/package.json`));
+    for (const dir of Object.values(REF_PACKAGE_DIRS)) {
+      const nm = join(wt, dir, "node_modules");
+      mkdirSync(nm, { recursive: true });
+      const link = join(nm, dep);
+      rmSync(link, { recursive: true, force: true });
+      symlinkSync(target, link, "dir");
+    }
+  }
+};
+
+const compareRef = (ref, requestedRuns) => {
   const { wt, sha, marker } = ensureRefWorktree(ref);
   mkdirSync(perfDir, { recursive: true });
-  const current = new Map();
-  const refBest = new Map();
+  // Drift cancellation needs the C R / R C alternation balanced, which only
+  // holds for an even number of interleaved runs.
+  const runs = requestedRuns % 2 ? requestedRuns + 1 : requestedRuns;
+  if (runs !== requestedRuns) {
+    console.error(
+      `rounding --runs up to ${runs} to keep the interleaving balanced`,
+    );
+  }
+  const curRuns = [];
+  const refRuns = [];
   const sides = [
-    ["current", () => mergeBest(current, runSuite())],
-    [ref, () => mergeBest(refBest, runSuite({ AUI_PERF_REF_ROOT: wt }))],
+    ["current", () => curRuns.push(new Map(runSuite().map((r) => [r.id, r])))],
+    [
+      ref,
+      () =>
+        refRuns.push(
+          new Map(runSuite({ AUI_PERF_REF_ROOT: wt }).map((r) => [r.id, r])),
+        ),
+    ],
   ];
+  // Runner drift saturates rather than staying linear: a boosted cold start
+  // settling into a slower steady state is concave, and under a concave curve
+  // the endpoint slots the interleaving hands one side sum to less than the
+  // middle slots. Burn the transient in a discarded warm-up pair; the
+  // balanced interleaving then only has to cancel the near-linear remainder.
+  console.error("warm-up pair (discarded)...");
+  runSuite();
+  runSuite({ AUI_PERF_REF_ROOT: wt });
   for (let i = 0; i < runs; i++) {
-    const order = i % 2 === 0 ? sides : [...sides].reverse();
+    // Alternating the block orientation per pair (C R R C, then R C C R)
+    // equalizes the squared slot sums as well, so residual curvature after
+    // the warm-up does not accumulate on one side as runs grow.
+    const order = (i >> 1) % 2 === i % 2 ? sides : [...sides].reverse();
     for (const [label, run] of order) {
-      console.log(`interleaved run ${i + 1}/${runs}: ${label}...`);
+      console.error(`interleaved run ${i + 1}/${runs}: ${label}...`);
       run();
     }
   }
   const refDoc = {
-    env: { ...envStamp(wt), runs },
-    benchmarks: [...refBest.values()],
+    env: { ...envStamp(wt), runs, estimator: "mean" },
+    benchmarks: [...meanRows(refRuns).values()],
   };
   const curDoc = {
-    env: { ...envStamp(), runs },
-    benchmarks: [...current.values()],
+    env: { ...envStamp(), runs, estimator: "mean" },
+    benchmarks: [...meanRows(curRuns).values()],
   };
   writeFileSync(
     join(perfDir, `ref-${sha}.json`),
     JSON.stringify(refDoc, null, 2),
   );
   writeFileSync(join(perfDir, "latest.json"), JSON.stringify(curDoc, null, 2));
-  renderCompare(refDoc, curDoc, `${ref} (${refDoc.env.sha})`, "current");
-  console.log(
+  renderCompare(
+    refDoc,
+    curDoc,
+    `${ref} (${refDoc.env.sha})`,
+    "current",
+    pairNoise(refRuns, curRuns),
+  );
+  console.error(
     `ref worktree kept at ${wt}; remove with: git worktree remove "${wt}" && rm "${marker}"`,
   );
 };
@@ -229,7 +291,7 @@ const trace = async (targets, seconds) => {
     const arg = /^https?:/.test(target) ? target : resolve(target);
     const url = new URL(arg, "file:///");
     const hint = basename(url.pathname) || url.hostname || arg;
-    console.log(`tracing ${hint} for ${seconds}s...`);
+    console.error(`tracing ${hint} for ${seconds}s...`);
     const events = await captureTrace(arg, seconds);
     results.push({
       target: hint,
