@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SafeContentFrame } from "./index";
+import { isShimLoadError, SafeContentFrame } from "./index";
 
 class MockMessagePort {
   onmessage: ((event: MessageEvent) => void) | null = null;
@@ -169,8 +169,11 @@ describe("SafeContentFrame", () => {
     iframe.dispatchEvent(new Event("load"));
     const frame = await framePromise;
 
-    await expect(frame.fullyLoadedPromiseWithTimeout(10)).rejects.toThrow(
-      `Failed to load shim: ${iframe.src}`,
+    await expect(frame.fullyLoadedPromiseWithTimeout(10)).rejects.toMatchObject(
+      {
+        code: "shim-unavailable",
+        message: `Failed to load shim: ${iframe.src}`,
+      },
     );
     frame.dispose();
   });
@@ -206,8 +209,11 @@ describe("SafeContentFrame", () => {
     iframe.dispatchEvent(new Event("load"));
     const frame = await framePromise;
 
-    await expect(frame.fullyLoadedPromiseWithTimeout(10)).rejects.toThrow(
-      `Failed to load shim: ${iframe.src}`,
+    await expect(frame.fullyLoadedPromiseWithTimeout(10)).rejects.toMatchObject(
+      {
+        code: "shim-unavailable",
+        message: `Failed to load shim: ${iframe.src}`,
+      },
     );
     frame.dispose();
   });
@@ -236,8 +242,11 @@ describe("SafeContentFrame", () => {
     iframe.dispatchEvent(new Event("load"));
     const frame = await framePromise;
 
-    await expect(frame.fullyLoadedPromiseWithTimeout(10)).rejects.toThrow(
-      "Product name was either invalid or null",
+    await expect(frame.fullyLoadedPromiseWithTimeout(10)).rejects.toMatchObject(
+      {
+        code: "shim-error",
+        message: "Product name was either invalid or null",
+      },
     );
     frame.dispose();
   });
@@ -314,9 +323,29 @@ describe("SafeContentFrame", () => {
     iframe.dispatchEvent(new Event("load"));
     const frame = await framePromise;
 
-    await expect(frame.fullyLoadedPromiseWithTimeout(10)).rejects.toThrow(
-      "Timeout",
+    await expect(frame.fullyLoadedPromiseWithTimeout(10)).rejects.toMatchObject(
+      { code: "render-timeout", message: "Timeout" },
     );
     frame.dispose();
+  });
+});
+
+describe("isShimLoadError", () => {
+  it.each(["shim-unavailable", "shim-error", "render-timeout"])(
+    "accepts a rejection carrying the %s code",
+    (code) => {
+      expect(isShimLoadError(Object.assign(new Error("x"), { code }))).toBe(
+        true,
+      );
+    },
+  );
+
+  it("rejects the plain errors the same promise can also reject with", () => {
+    expect(isShimLoadError(new Error("Failed to load iframe"))).toBe(false);
+    expect(
+      isShimLoadError(Object.assign(new Error("x"), { code: "enoent" })),
+    ).toBe(false);
+    expect(isShimLoadError({ code: "shim-error" })).toBe(false);
+    expect(isShimLoadError(undefined)).toBe(false);
   });
 });
