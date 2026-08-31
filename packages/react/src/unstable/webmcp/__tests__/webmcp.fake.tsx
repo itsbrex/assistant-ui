@@ -49,20 +49,31 @@ export const createFakeWebMcpHost = (): FakeWebMcpHost => {
   };
 };
 
+// Mirrors the spec's registerTool: the tool enters the map synchronously while
+// the promise resolves on a later task, aborting removes it and rejects, and a
+// name already in the map is refused.
 export const createAsyncModelContext = (): Map<
   string,
   WebMcpToolDescriptor
 > => {
   const registry = new Map<string, WebMcpToolDescriptor>();
   const context: WebMcpModelContext = {
-    registerTool: (tool) => {
+    registerTool: (tool, options) => {
+      if (registry.has(tool.name)) {
+        return Promise.reject(
+          new DOMException(
+            `Tool "${tool.name}" is already registered`,
+            "InvalidStateError",
+          ),
+        );
+      }
       registry.set(tool.name, tool);
-      return Promise.resolve();
-    },
-    unregisterTool: (name) => {
-      const removing = registry.get(name);
-      queueMicrotask(() => {
-        if (registry.get(name) === removing) registry.delete(name);
+      return new Promise<void>((resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => {
+          registry.delete(tool.name);
+          reject(options.signal?.reason);
+        });
+        setTimeout(() => resolve(), 0);
       });
     },
   };
