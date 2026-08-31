@@ -153,16 +153,7 @@ export class SafeContentFrame {
       const channel = new MessageChannel();
       let channelTransferred = false;
       let cleanedUp = false;
-      const cleanup = () => {
-        if (cleanedUp) return;
-        cleanedUp = true;
-        iframe.onload = null;
-        iframe.onerror = null;
-        channel.port1.onmessage = null;
-        channel.port1.close();
-        if (!channelTransferred) channel.port2.close();
-        mountElement.remove();
-      };
+      let shimReady = false;
 
       let onLoaded: () => void;
       let onLoadError: (error: Error) => void;
@@ -171,6 +162,29 @@ export class SafeContentFrame {
         onLoadError = rejectLoaded;
       });
       void loaded.catch(() => {});
+
+      const onWindowMessage = (event: MessageEvent) => {
+        if (event.origin !== iframeOrigin) return;
+        if (event.source !== iframe.contentWindow) return;
+
+        if (event.data?.type === "ready") shimReady = true;
+        else if (event.data?.type === "error") {
+          onLoadError(new Error(event.data.message));
+        }
+      };
+      window.addEventListener("message", onWindowMessage);
+
+      const cleanup = () => {
+        if (cleanedUp) return;
+        cleanedUp = true;
+        iframe.onload = null;
+        iframe.onerror = null;
+        window.removeEventListener("message", onWindowMessage);
+        channel.port1.onmessage = null;
+        channel.port1.close();
+        if (!channelTransferred) channel.port2.close();
+        mountElement.remove();
+      };
 
       channel.port1.onmessage = (e) => {
         if (e.data?.type === "msg") onLoaded();
@@ -218,7 +232,17 @@ export class SafeContentFrame {
             Promise.race([
               loaded,
               new Promise<void>((_, rej) =>
-                setTimeout(() => rej(new Error("Timeout")), ms),
+                setTimeout(
+                  () =>
+                    rej(
+                      new Error(
+                        shimReady
+                          ? "Timeout"
+                          : `Failed to load shim: ${shimUrl}`,
+                      ),
+                    ),
+                  ms,
+                ),
               ),
             ]),
           dispose: cleanup,
