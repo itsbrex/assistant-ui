@@ -54,6 +54,7 @@ Both are defined in the root `package.json`; `deps:update` runs `scripts/update-
 - Do **not** hand-edit the generated changeset's bump levels — `generate-deps-changeset.sh` correctly emits `patch` for every published package whose `package.json` changed and skips private packages (`@assistant-ui/docs`, `@assistant-ui/shadcn-registry`, etc.). Per `AGENTS.md`, dependency updates are always patch.
 - The script detects changes via `git diff HEAD`, so run it with the package.json edits still unstaged (or staged — it checks both). Don't commit before it runs.
 - `pnpm-lock.yaml` will have a huge diff; that's expected since step 2 deletes it.
+- `pnpm unmanaged-pins:check` guards two pins the updater never opens, so a routine run can go red on a file it did not touch. Raise the exact pins in `apps/docs/lib/xulux/learn/courses/*/shared/project/package.json` to whatever the workspace now prevailingly declares (pins on packages this repository publishes are exempt, since those move on every release), and move any version-scoped `allowBuilds` entry in `pnpm-workspace.yaml` to the version the refreshed lockfile installs.
 - Node `>=24` and `pnpm@11.3.0` are required (see root `package.json` `engines` / `packageManager`).
 
 ## Python (uv)
@@ -94,16 +95,17 @@ Notes:
 
 ## GitHub Actions
 
-Workflows under `.github/workflows/*.{yml,yaml}` use a mix of styles:
+Every `uses:` entry under `.github/workflows/*.{yml,yaml}` is SHA-pinned for supply-chain hardening and carries a `ratchet:` marker naming the release the SHA came from:
 
-- **SHA-pinned** (preferred for security — supply-chain hardening):
-  `uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6`
-- **Tag-pinned** (still in some files):
-  `uses: actions/checkout@v6`
+```yaml
+uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # ratchet:actions/checkout@v7.0.1
+```
+
+The marker is what `ratchet update` reads to recognize the entry, so an entry that loses it keeps working and stops being updated. `pnpm unmanaged-pins:check` fails on a ref that is not a commit SHA, on a missing marker, on a marker with no version, and on one that names a different action than its `uses:` ref. Annotate a deliberately unmanaged ref, or a pinned container image, with `# ratchet:exclude`, which waives all four.
 
 There is **no Dependabot config** (`.github/dependabot.yml` does not exist), so these don't update themselves. `pnpm deps:update` does not touch them either.
 
-To refresh both styles in one shot, use [`ratchet`](https://github.com/sethvargo/ratchet) (or `pinact`):
+To refresh them, use [`ratchet`](https://github.com/sethvargo/ratchet) (or `pinact`):
 
 ```bash
 # pin any remaining tag refs to SHAs (one-time per file)
@@ -113,12 +115,13 @@ ratchet pin .github/workflows/*.yml .github/workflows/*.yaml
 ratchet update .github/workflows/*.yml .github/workflows/*.yaml
 ```
 
-Both leave the `# v6`-style comment intact so reviewers can read the human version. If `ratchet` isn't available, fall back to manually checking each `uses:` against the action's releases page and updating the SHA + comment together.
+Both rewrite the marker alongside the SHA. If `ratchet` isn't available, fall back to manually checking each `uses:` against the action's releases page and updating the SHA and marker together.
 
 After updating, sanity-check on a branch by pushing and watching the affected workflows actually run (most are PR-triggered: `code-quality`, `autofix`, `changeset`, `changeset-semver-check`, `expo`, `devtools-frame`, `registry`). Release workflows (`npm-publish`, `pypi-publish`, `traction`) can't be tested without a release tag — eyeball those diffs extra carefully.
 
 Notes:
 
 - GH Actions updates do not need a changeset (they don't ship in any npm package).
+- `pnpm unmanaged-pins:check` also holds the Node.js major consistent across every workflow, so bump `runtime: node@N` and `node-version:` together.
 - Commit as `chore: update github actions` (or roll into `chore: update dependencies` if landing alongside the JS/Python bumps).
 - If a major bump changes inputs/outputs, check the action's release notes — `ratchet` will happily move you from `v4` to `v6` without warning about breaking changes.
