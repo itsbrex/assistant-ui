@@ -14,7 +14,10 @@ import { useResources, withKey } from "@assistant-ui/tap";
 import type { AssistantClient } from "@assistant-ui/store";
 import { ThreadListItemRuntimeProvider } from "../providers/ThreadListItemRuntimeProvider";
 import type { ThreadRuntimeCore } from "../../runtime/interfaces/thread-runtime-core";
-import type { ThreadListRuntimeCore } from "../../runtime/interfaces/thread-list-runtime-core";
+import type {
+  ThreadListRuntimeCore,
+  ThreadRunEvent,
+} from "../../runtime/interfaces/thread-list-runtime-core";
 import type { Unsubscribe } from "../../types/unsubscribe";
 import {
   BaseSubscribable,
@@ -24,6 +27,7 @@ import { useSubscribable } from "../../store/runtime-clients/useSubscribable";
 import { getThreadRuntimeCoreIsRunning } from "../../runtime/api/thread-runtime";
 import { ThreadListRuntimeImpl } from "../../runtime/api/thread-list-runtime";
 import { invalidateThreadRuntime } from "../../runtime/utils/thread-runtime-lifecycle";
+import { notifyEventListeners } from "../../utils/notify-event-listeners";
 import {
   useRuntimeAdapters,
   type RuntimeAdapters,
@@ -32,6 +36,8 @@ import {
   RemoteThreadResource,
   type RemoteThreadListHook,
 } from "./RemoteThreadResource";
+
+const RUN_EVENTS = ["runStart", "runEnd"] as const;
 
 type RemoteThreadListHookInstance = {
   runtime?: ThreadRuntimeCore | undefined;
@@ -151,6 +157,15 @@ export class RemoteThreadListHookInstanceManager extends BaseSubscribable {
     return () => this.runningSubscribers.delete(callback);
   }
 
+  private runEventSubscribers = new Set<(event: ThreadRunEvent) => void>();
+
+  public __internal_subscribeRunEvents(
+    callback: (event: ThreadRunEvent) => void,
+  ): Unsubscribe {
+    this.runEventSubscribers.add(callback);
+    return () => this.runEventSubscribers.delete(callback);
+  }
+
   private _publish = (
     threadId: string,
     runtime: ThreadRuntimeCore,
@@ -173,7 +188,7 @@ export class RemoteThreadListHookInstanceManager extends BaseSubscribable {
     instance.runtime = runtime;
     instance.publishedGeneration = generation;
     if (previousRuntime !== runtime) {
-      this._trackRunning(instance);
+      this._trackRunning(threadId, instance);
     }
     this._notifySubscribers();
     if (previousRuntime !== undefined && previousRuntime !== runtime) {
@@ -190,7 +205,10 @@ export class RemoteThreadListHookInstanceManager extends BaseSubscribable {
     return () => this.replacedSubscribers.delete(callback);
   }
 
-  private _trackRunning(instance: RemoteThreadListHookInstance) {
+  private _trackRunning(
+    threadId: string,
+    instance: RemoteThreadListHookInstance,
+  ) {
     instance.unsubscribeRunning?.();
 
     const runtime = instance.runtime;
@@ -201,9 +219,23 @@ export class RemoteThreadListHookInstanceManager extends BaseSubscribable {
     }
 
     this._setRunning(instance, getThreadRuntimeCoreIsRunning(runtime));
-    instance.unsubscribeRunning = runtime.subscribe(() => {
-      this._setRunning(instance, getThreadRuntimeCoreIsRunning(runtime));
-    });
+    const unsubscribers = [
+      runtime.subscribe(() => {
+        this._setRunning(instance, getThreadRuntimeCoreIsRunning(runtime));
+      }),
+      ...RUN_EVENTS.map((type) =>
+        runtime.unstable_on(type, () => {
+          notifyEventListeners(
+            this.runEventSubscribers,
+            { threadId, type },
+            `Thread run "${type}"`,
+          );
+        }),
+      ),
+    ];
+    instance.unsubscribeRunning = () => {
+      for (const unsubscribe of unsubscribers) unsubscribe();
+    };
   }
 
   private _setRunning(
