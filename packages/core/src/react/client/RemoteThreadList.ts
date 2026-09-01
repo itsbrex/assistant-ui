@@ -777,22 +777,30 @@ const useRemoteThreadList = (
           throw threadNotFoundError(threadIdOrRemoteId, "switching to it");
         }
         if (isSameThread(store.value, data.id, session.mainThreadId)) return;
-        if (data.status === "archived" && options?.unarchive !== false) {
-          const current = data;
+
+        const targetId = data.id;
+        let current: RemoteThreadData | undefined = data;
+
+        if (current.status === "archived" && options?.unarchive !== false) {
           const { remoteId } = await current.initializeTask;
           if (generation !== session.switchGeneration) return;
-          await store.optimisticUpdate({
-            execute: () => session.adapter.unarchive(remoteId),
-            optimistic: (state) =>
-              updateStatusReducer(state, current.id, "regular"),
-          });
-          if (generation !== session.switchGeneration) return;
-          data = getThreadData(store.value, current.id) ?? current;
+          current = getThreadData(store.value, targetId);
+          if (current?.id !== targetId) return;
+          if (current.status === "archived") {
+            await store.optimisticUpdate({
+              execute: () => session.adapter.unarchive(remoteId),
+              optimistic: (state) =>
+                updateStatusReducer(state, targetId, "regular"),
+            });
+            if (generation !== session.switchGeneration) return;
+            current = getThreadData(store.value, targetId);
+            if (current?.id !== targetId) return;
+          }
         }
         if (generation !== session.switchGeneration) return;
-        assignMainThreadId(data.id);
-        notifyRemoteId(data.remoteId, emitThreadIdChange);
-        session.onSwitchToThread?.(data.id);
+        assignMainThreadId(current.id);
+        notifyRemoteId(current.remoteId, emitThreadIdChange);
+        session.onSwitchToThread?.(current.id);
       }),
     [assignMainThreadId, notifyRemoteId, session, startSwitch, store],
   );

@@ -688,11 +688,22 @@ export class RemoteThreadListThreadListRuntimeCore
 
     if (generation !== this._switchGeneration) return;
 
-    if (data.status === "archived" && options?.unarchive !== false) {
-      await this.unarchive(data.id);
+    let current = this.getItemById(data.id);
+    if (current?.id !== data.id) return;
+
+    if (current.status === "archived" && options?.unarchive !== false) {
+      await current.initializeTask;
       if (generation !== this._switchGeneration) return;
+      current = this.getItemById(data.id);
+      if (current?.id !== data.id) return;
+      if (current.status === "archived") {
+        await this.unarchive(current.id);
+        if (generation !== this._switchGeneration) return;
+        current = this.getItemById(data.id);
+        if (current?.id !== data.id) return;
+      }
     }
-    this._mainThreadId = data.id;
+    this._mainThreadId = current.id;
 
     this._notifySubscribers();
     this._notifyThreadIdChange(emitThreadIdChange);
