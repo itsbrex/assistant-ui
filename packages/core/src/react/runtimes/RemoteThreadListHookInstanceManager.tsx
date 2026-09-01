@@ -13,10 +13,13 @@ import {
 import { useResources, withKey } from "@assistant-ui/tap";
 import type { AssistantClient } from "@assistant-ui/store";
 import { ThreadListItemRuntimeProvider } from "../providers/ThreadListItemRuntimeProvider";
-import type { ThreadRuntimeCore } from "../../runtime/interfaces/thread-runtime-core";
+import type {
+  ThreadRuntimeCore,
+  ThreadRuntimeEventType,
+} from "../../runtime/interfaces/thread-runtime-core";
 import type {
   ThreadListRuntimeCore,
-  ThreadRunEvent,
+  ThreadListRuntimeEvent,
 } from "../../runtime/interfaces/thread-list-runtime-core";
 import type { Unsubscribe } from "../../types/unsubscribe";
 import {
@@ -37,7 +40,12 @@ import {
   type RemoteThreadListHook,
 } from "./RemoteThreadResource";
 
-const RUN_EVENTS = ["runStart", "runEnd"] as const;
+const THREAD_EVENTS = [
+  "runStart",
+  "runEnd",
+  "initialize",
+  "modelContextUpdate",
+] as const satisfies readonly ThreadRuntimeEventType[];
 
 type RemoteThreadListHookInstance = {
   runtime?: ThreadRuntimeCore | undefined;
@@ -157,13 +165,15 @@ export class RemoteThreadListHookInstanceManager extends BaseSubscribable {
     return () => this.runningSubscribers.delete(callback);
   }
 
-  private runEventSubscribers = new Set<(event: ThreadRunEvent) => void>();
+  private threadEventSubscribers = new Set<
+    (event: ThreadListRuntimeEvent) => void
+  >();
 
-  public __internal_subscribeRunEvents(
-    callback: (event: ThreadRunEvent) => void,
+  public __internal_subscribeThreadEvents(
+    callback: (event: ThreadListRuntimeEvent) => void,
   ): Unsubscribe {
-    this.runEventSubscribers.add(callback);
-    return () => this.runEventSubscribers.delete(callback);
+    this.threadEventSubscribers.add(callback);
+    return () => this.threadEventSubscribers.delete(callback);
   }
 
   private _publish = (
@@ -223,12 +233,12 @@ export class RemoteThreadListHookInstanceManager extends BaseSubscribable {
       runtime.subscribe(() => {
         this._setRunning(instance, getThreadRuntimeCoreIsRunning(runtime));
       }),
-      ...RUN_EVENTS.map((type) =>
+      ...THREAD_EVENTS.map((type) =>
         runtime.unstable_on(type, () => {
           notifyEventListeners(
-            this.runEventSubscribers,
+            this.threadEventSubscribers,
             { threadId, type },
-            `Thread run "${type}"`,
+            `Thread event "${type}"`,
           );
         }),
       ),

@@ -9,7 +9,7 @@ import {
 } from "../../subscribable/subscribable";
 import type {
   ThreadListRuntimeCore,
-  ThreadRunEvent,
+  ThreadListRuntimeEvent,
 } from "../interfaces/thread-list-runtime-core";
 import {
   type ThreadListItemRuntime,
@@ -62,13 +62,13 @@ export type ThreadListRuntime = {
   switchToNewThread(): Promise<void>;
 
   /**
-   * Observes run starts and ends on every thread this list keeps alive, so a
-   * run that outlives its thread's selection stays observable. Thread lists
-   * that mount only the main thread never emit; their main thread's runtime is
-   * observed directly.
+   * Observes lifecycle events on every thread this list keeps alive, so an
+   * event that fires while its thread is not selected stays observable. Thread
+   * lists that mount only the main thread never emit; their main thread's
+   * runtime is observed directly.
    */
-  unstable_subscribeThreadRunEvents(
-    callback: (event: ThreadRunEvent) => void,
+  unstable_subscribeThreadEvents(
+    callback: (event: ThreadListRuntimeEvent) => void,
   ): Unsubscribe;
 
   getLoadThreadsPromise(): Promise<void>;
@@ -185,8 +185,8 @@ export class ThreadListRuntimeImpl implements ThreadListRuntime {
   protected __internal_bindMethods() {
     this.switchToThread = this.switchToThread.bind(this);
     this.switchToNewThread = this.switchToNewThread.bind(this);
-    this.unstable_subscribeThreadRunEvents =
-      this.unstable_subscribeThreadRunEvents.bind(this);
+    this.unstable_subscribeThreadEvents =
+      this.unstable_subscribeThreadEvents.bind(this);
     this.getLoadThreadsPromise = this.getLoadThreadsPromise.bind(this);
     this.reload = this.reload.bind(this);
     this.reloadMainThread = this.reloadMainThread.bind(this);
@@ -210,12 +210,11 @@ export class ThreadListRuntimeImpl implements ThreadListRuntime {
     return this._core.switchToNewThread();
   }
 
-  public unstable_subscribeThreadRunEvents(
-    callback: (event: ThreadRunEvent) => void,
+  public unstable_subscribeThreadEvents(
+    callback: (event: ThreadListRuntimeEvent) => void,
   ): Unsubscribe {
     return (
-      this._core.unstable_subscribeThreadRunEvents?.(callback) ??
-      NOOP_UNSUBSCRIBE
+      this._core.unstable_subscribeThreadEvents?.(callback) ?? NOOP_UNSUBSCRIBE
     );
   }
 

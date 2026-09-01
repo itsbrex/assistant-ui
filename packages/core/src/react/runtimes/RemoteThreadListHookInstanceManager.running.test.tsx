@@ -5,7 +5,9 @@ import type { ThreadMessage } from "../../types/message";
 import { RemoteThreadListHookInstanceManager } from "./RemoteThreadListHookInstanceManager";
 
 const makeRuntime = (
-  initial: Partial<Pick<ThreadRuntimeCore, "isRunning" | "messages">> = {},
+  initial: Partial<Pick<ThreadRuntimeCore, "isRunning" | "messages">> & {
+    initialized?: boolean;
+  } = {},
 ) => {
   const subscribers = new Set<() => void>();
   const eventListeners = new Map<string, Set<() => void>>();
@@ -23,6 +25,14 @@ const makeRuntime = (
         eventListeners.set(event, listeners);
       }
       listeners.add(callback);
+      // mirrors the real core: initialize latches, so a subscriber that
+      // attaches after initialization gets a deferred replay
+      if (event === "initialize" && initial.initialized) {
+        const latched = listeners;
+        queueMicrotask(() => {
+          if (latched.has(callback)) callback();
+        });
+      }
       return () => listeners.delete(callback);
     },
   } as unknown as ThreadRuntimeCore & {
@@ -174,10 +184,10 @@ describe("RemoteThreadListHookInstanceManager run tracking", () => {
     expect(manager.__internal_isThreadRunning("thread-1")).toBe(false);
   });
 
-  it("forwards run events from every tracked thread with its thread id", () => {
+  it("forwards every lifecycle event from every tracked thread with its thread id", () => {
     const manager = makeManager();
     const events: unknown[] = [];
-    manager.__internal_subscribeRunEvents((event) => events.push(event));
+    manager.__internal_subscribeThreadEvents((event) => events.push(event));
 
     start(manager, "thread-1");
     start(manager, "thread-2");
@@ -188,17 +198,37 @@ describe("RemoteThreadListHookInstanceManager run tracking", () => {
 
     second.emit("runStart");
     first.emit("runEnd");
+    first.emit("initialize");
+    second.emit("modelContextUpdate");
 
     expect(events).toEqual([
       { threadId: "thread-2", type: "runStart" },
       { threadId: "thread-1", type: "runEnd" },
+      { threadId: "thread-1", type: "initialize" },
+      { threadId: "thread-2", type: "modelContextUpdate" },
     ]);
   });
 
-  it("stops forwarding run events from a runtime a restart replaced", () => {
+  it("replays a latched initialize from the surviving runtime after a restart", async () => {
     const manager = makeManager();
     const events: unknown[] = [];
-    manager.__internal_subscribeRunEvents((event) => events.push(event));
+    manager.__internal_subscribeThreadEvents((event) => events.push(event));
+
+    start(manager, "thread-1");
+    const before = makeRuntime({ initialized: true });
+    publish(manager, "thread-1", before.runtime);
+    const after = makeRuntime({ initialized: true });
+    publish(manager, "thread-1", after.runtime);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+
+    expect(before.eventListenerCount()).toBe(0);
+    expect(events).toEqual([{ threadId: "thread-1", type: "initialize" }]);
+  });
+
+  it("stops forwarding lifecycle events from a runtime a restart replaced", () => {
+    const manager = makeManager();
+    const events: unknown[] = [];
+    manager.__internal_subscribeThreadEvents((event) => events.push(event));
 
     start(manager, "thread-1");
     const before = makeRuntime();
@@ -207,9 +237,14 @@ describe("RemoteThreadListHookInstanceManager run tracking", () => {
     publish(manager, "thread-1", after.runtime);
 
     before.emit("runEnd");
+    before.emit("initialize");
     after.emit("runEnd");
+    after.emit("modelContextUpdate");
 
     expect(before.eventListenerCount()).toBe(0);
-    expect(events).toEqual([{ threadId: "thread-1", type: "runEnd" }]);
+    expect(events).toEqual([
+      { threadId: "thread-1", type: "runEnd" },
+      { threadId: "thread-1", type: "modelContextUpdate" },
+    ]);
   });
 });
