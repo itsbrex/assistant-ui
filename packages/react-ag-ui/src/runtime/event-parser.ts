@@ -66,30 +66,61 @@ const parseInterrupt = (raw: unknown): AgUiInterrupt | null => {
 
 const parseRunFinishedOutcome = (
   raw: unknown,
+  runId: string,
   logger: Logger | undefined,
 ): AgUiRunFinishedOutcome | undefined => {
-  if (!isPlainObject(raw)) return undefined;
+  if (raw == null) return undefined;
+  if (!isPlainObject(raw)) {
+    logRejectedEvent(
+      logger,
+      "RUN_FINISHED",
+      { runId, outcome: raw },
+      "has invalid outcome",
+    );
+    return undefined;
+  }
   if (raw.type === "success") return { type: "success" };
   if (raw.type === "interrupt") {
     if (!Array.isArray(raw.interrupts)) {
-      logger?.debug?.(
-        "[agui] RUN_FINISHED interrupt outcome missing interrupts array",
-        raw,
+      logRejectedEvent(
+        logger,
+        "RUN_FINISHED",
+        { runId, outcome: raw },
+        "has an interrupt outcome missing interrupts array",
       );
       return undefined;
     }
     const parsed = raw.interrupts
-      .map((entry) => parseInterrupt(entry))
+      .map((entry) => {
+        const interrupt = parseInterrupt(entry);
+        if (interrupt === null) {
+          logRejectedEvent(
+            logger,
+            "RUN_FINISHED",
+            { runId, interrupt: entry },
+            "has malformed interrupt",
+          );
+        }
+        return interrupt;
+      })
       .filter((entry): entry is AgUiInterrupt => entry !== null);
     if (parsed.length === 0) {
-      logger?.debug?.(
-        "[agui] RUN_FINISHED interrupt outcome has no valid interrupts",
-        raw.interrupts,
+      logRejectedEvent(
+        logger,
+        "RUN_FINISHED",
+        { runId, interrupts: raw.interrupts },
+        "has an interrupt outcome with no valid interrupts",
       );
       return undefined;
     }
     return { type: "interrupt", interrupts: parsed };
   }
+  logRejectedEvent(
+    logger,
+    "RUN_FINISHED",
+    { runId, outcome: raw },
+    "has unsupported outcome type",
+  );
   return undefined;
 };
 
@@ -127,7 +158,11 @@ export const parseAgUiEvent = (
       return withOptional(
         { type: "RUN_FINISHED" as const, runId },
         {
-          outcome: parseRunFinishedOutcome(payload.outcome, options?.logger),
+          outcome: parseRunFinishedOutcome(
+            payload.outcome,
+            runId,
+            options?.logger,
+          ),
         },
       );
     }
@@ -385,7 +420,15 @@ export const parseAgUiEvent = (
       if (!subagentRunId) return reject("missing subagentRunId");
       const rawOutcome = payload.outcome;
       let outcome: AgUiSubagentFinishedOutcome | undefined;
-      if (!isPlainObject(rawOutcome)) {
+      if (rawOutcome == null) {
+        outcome = undefined;
+      } else if (!isPlainObject(rawOutcome)) {
+        logRejectedEvent(
+          options?.logger,
+          "SUBAGENT_FINISHED",
+          { subagentRunId, outcome: rawOutcome },
+          "has invalid outcome",
+        );
         outcome = undefined;
       } else if (rawOutcome.type === "success") {
         outcome = { type: "success" as const };
@@ -399,6 +442,12 @@ export const parseAgUiEvent = (
           },
         );
       } else {
+        logRejectedEvent(
+          options?.logger,
+          "SUBAGENT_FINISHED",
+          { subagentRunId, outcome: rawOutcome },
+          "has unsupported outcome type",
+        );
         outcome = undefined;
       }
       return withOptional(
