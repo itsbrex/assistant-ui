@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ComponentProps } from "react";
 
 import { Box, Text, useFocus, useInput } from "ink";
+import stringWidth from "string-width";
 import {
   getGraphemeAt,
   textBufferReducer,
@@ -216,8 +217,10 @@ export const TextInput = ({
   const before = hasText ? text.slice(0, cursorOffset) : "";
   const charAtCursor = hasText ? getGraphemeAt(text, cursorOffset) : "";
   const isOnNewline = charAtCursor === "\n" || charAtCursor === "\r\n";
-  // render a space when on a newline so the inverse cursor cell stays visible
-  const atCursor = charAtCursor === "" || isOnNewline ? " " : charAtCursor;
+  const atCursor =
+    charAtCursor === "" || isOnNewline || stringWidth(charAtCursor) === 0
+      ? " "
+      : charAtCursor;
   const after = hasText
     ? isOnNewline
       ? text.slice(cursorOffset)

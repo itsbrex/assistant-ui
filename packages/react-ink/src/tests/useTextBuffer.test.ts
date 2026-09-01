@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+
+import stringWidth from "string-width";
 import {
   createTextBufferState,
   getGraphemeAt,
@@ -129,13 +131,13 @@ describe("textBufferReducer", () => {
     );
     const insertedAbove = reduce(movedUp, { type: "insert", text: "X" });
 
-    expect(movedDown.cursorOffset).toBe(4);
-    expect(insertedBelow.text).toBe("a\n😀Xb");
-    expect(movedUp.cursorOffset).toBe(2);
-    expect(insertedAbove.text).toBe("😀Xx\nabcd");
+    expect(movedDown.cursorOffset).toBe(2);
+    expect(insertedBelow.text).toBe("a\nX😀b");
+    expect(movedUp.cursorOffset).toBe(0);
+    expect(insertedAbove.text).toBe("X😀x\nabcd");
   });
 
-  it("preserves a grapheme column across a shorter line", () => {
+  it("preserves a display column across a shorter line", () => {
     const start = reduce(createTextBufferState("a😀b\nxy\ncdefg"), {
       type: "set-cursor",
       cursorOffset: 11,
@@ -145,8 +147,44 @@ describe("textBufferReducer", () => {
     const roundTrip = reduce(top, { type: "move-down" }, { type: "move-down" });
 
     expect(middle.cursorOffset).toBe(7);
-    expect(top.cursorOffset).toBe(4);
+    expect(top.cursorOffset).toBe(3);
     expect(roundTrip.cursorOffset).toBe(11);
+  });
+
+  it("uses display columns when moving across wide graphemes", () => {
+    const movedUp = reduce(
+      createTextBufferState("😀😀\nabcd"),
+      { type: "set-cursor", cursorOffset: 8 },
+      { type: "move-up" },
+    );
+    const movedDown = reduce(movedUp, { type: "move-down" });
+
+    expect(movedUp.cursorOffset).toBe(2);
+    expect(movedUp.preferredColumn).toBe(3);
+    expect(movedDown.cursorOffset).toBe(8);
+  });
+
+  it("uses display columns for CJK text", () => {
+    const movedUp = reduce(
+      createTextBufferState("你好\nabcd"),
+      { type: "set-cursor", cursorOffset: 7 },
+      { type: "move-up" },
+    );
+
+    expect(movedUp.cursorOffset).toBe(2);
+    expect(movedUp.preferredColumn).toBe(4);
+  });
+
+  it("round trips vertical movement across a line carrying escape sequences", () => {
+    const start = reduce(
+      createTextBufferState("\u001b[31mred\u001b[39m\nabcdefghijkl"),
+      { type: "set-cursor", cursorOffset: 8 },
+    );
+    const movedDown = reduce(start, { type: "move-down" });
+    const roundTrip = reduce(movedDown, { type: "move-up" });
+
+    expect(movedDown.cursorOffset).toBe(21);
+    expect(roundTrip.cursorOffset).toBe(8);
   });
 
   it("does not move inside a CRLF line break", () => {
@@ -443,5 +481,21 @@ describe("textBufferReducer", () => {
 
     expect(state.text).toBe(" beta gamma");
     expect(state.cursorOffset).toBe(0);
+  });
+});
+
+const widthCases = [
+  ["ascii", "a", 1],
+  ["emoji", "😀", 2],
+  ["CJK", "你", 2],
+  ["emoji sequence", "👩‍💻", 2],
+  ["combining mark", "e\u0301", 1],
+  ["format character", "\u200b", 0],
+  ["line break", "\r\n", 0],
+] satisfies Array<[string, string, number]>;
+
+describe("terminal cell width contract", () => {
+  it.each(widthCases)("measures %s in terminal cells", (_, grapheme, width) => {
+    expect(stringWidth(grapheme)).toBe(width);
   });
 });

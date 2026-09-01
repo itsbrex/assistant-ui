@@ -1,5 +1,7 @@
 import { useCallback, useReducer } from "react";
 
+import stringWidth from "string-width";
+
 export type TextBufferState = {
   text: string;
   cursorOffset: number;
@@ -111,21 +113,21 @@ const getLineRange = (text: string, cursorOffset: number) => {
   return { start, end };
 };
 
-const getGraphemeColumn = (
+const getDisplayColumn = (
   text: string,
   lineStart: number,
   cursorOffset: number,
 ) => {
   let column = 0;
-  for (const _ of graphemeSegmenter.segment(
+  for (const { segment } of graphemeSegmenter.segment(
     text.slice(lineStart, cursorOffset),
   )) {
-    column++;
+    column += stringWidth(segment);
   }
   return column;
 };
 
-const getOffsetAtGraphemeColumn = (
+const getOffsetAtDisplayColumn = (
   text: string,
   lineStart: number,
   lineEnd: number,
@@ -134,11 +136,12 @@ const getOffsetAtGraphemeColumn = (
   let offset = lineStart;
   let currentColumn = 0;
   for (const { segment } of graphemeSegmenter.segment(
-    text.slice(lineStart, lineEnd + 1),
+    text.slice(lineStart, lineEnd),
   )) {
-    if (currentColumn >= column || offset + segment.length > lineEnd) break;
+    const width = stringWidth(segment);
+    if (currentColumn >= column || currentColumn + width > column) break;
     offset += segment.length;
-    currentColumn++;
+    currentColumn += width;
   }
   return offset;
 };
@@ -169,7 +172,7 @@ const moveVertical = (
 ) => {
   const { start, end } = getLineRange(text, cursorOffset);
   const currentColumn =
-    preferredColumn ?? getGraphemeColumn(text, start, cursorOffset);
+    preferredColumn ?? getDisplayColumn(text, start, cursorOffset);
   const adjacentBreakIndex = direction === -1 ? start - 1 : end;
 
   if (adjacentBreakIndex < 0 || adjacentBreakIndex >= text.length) {
@@ -181,7 +184,7 @@ const moveVertical = (
       ? getLineBreakStart(text, adjacentBreakIndex)
       : getLineBreakEnd(text, adjacentBreakIndex);
   const adjacentRange = getLineRange(text, adjacentCursorBase);
-  const nextCursorOffset = getOffsetAtGraphemeColumn(
+  const nextCursorOffset = getOffsetAtDisplayColumn(
     text,
     adjacentRange.start,
     adjacentRange.end,
