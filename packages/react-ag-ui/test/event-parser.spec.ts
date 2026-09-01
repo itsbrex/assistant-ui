@@ -70,6 +70,25 @@ describe("parseAgUiEvent", () => {
     expect(event).toBeNull();
   });
 
+  it("rejects malformed message snapshots without rejecting empty snapshots", () => {
+    const debug = vi.fn();
+    expect(
+      parseAgUiEvent(
+        { type: "MESSAGES_SNAPSHOT", messages: {} },
+        { logger: { debug } as any },
+      ),
+    ).toBeNull();
+    expect(debug).toHaveBeenCalledTimes(1);
+    expect(debug).toHaveBeenCalledWith(
+      expect.stringMatching(/MESSAGES_SNAPSHOT missing messages/),
+      { type: "MESSAGES_SNAPSHOT", messages: {} },
+    );
+    expect(parseAgUiEvent({ type: "MESSAGES_SNAPSHOT" })).toBeNull();
+    expect(parseAgUiEvent({ type: "MESSAGES_SNAPSHOT", messages: [] })).toEqual(
+      { type: "MESSAGES_SNAPSHOT", messages: [] },
+    );
+  });
+
   it("parses reasoning content with optional message id", () => {
     const event = parseAgUiEvent({
       type: "REASONING_MESSAGE_CONTENT",
