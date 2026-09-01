@@ -6,6 +6,13 @@ const SANDBOX_FETCH_HEADERS = {
 
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 300;
+const DEFAULT_TIMEOUT_MS = 30_000;
+
+export interface SandboxFetchInit extends RequestInit {
+  // Budget for the whole call, retries and response body included, so a
+  // streamed archive needs a wider value than a JSON call.
+  timeoutMs?: number;
+}
 
 function isRetryableFetchError(error: unknown) {
   if (!(error instanceof Error)) return false;
@@ -19,8 +26,16 @@ function isRetryableFetchError(error: unknown) {
   );
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve) => {
+    const settle = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", settle);
+      resolve();
+    };
+    const timer = setTimeout(settle, ms);
+    signal.addEventListener("abort", settle, { once: true });
+  });
 }
 
 function mergeHeaders(headers?: HeadersInit): Headers {
@@ -32,23 +47,32 @@ function mergeHeaders(headers?: HeadersInit): Headers {
 
 export async function fetchSandboxResource(
   url: string | URL,
-  init?: RequestInit,
+  init?: SandboxFetchInit,
 ): Promise<Response> {
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, signal, ...requestInit } = init ?? {};
+  const deadline = AbortSignal.timeout(timeoutMs);
+  const abort = signal ? AbortSignal.any([signal, deadline]) : deadline;
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     try {
       return await fetch(url, {
-        ...init,
+        ...requestInit,
         cache: "no-store",
-        headers: mergeHeaders(init?.headers),
+        headers: mergeHeaders(requestInit.headers),
+        signal: abort,
       });
     } catch (error) {
       lastError = error;
-      if (!isRetryableFetchError(error) || attempt === MAX_ATTEMPTS) {
+      if (
+        abort.aborted ||
+        !isRetryableFetchError(error) ||
+        attempt === MAX_ATTEMPTS
+      ) {
         throw error;
       }
-      await sleep(RETRY_DELAY_MS * attempt);
+      await sleep(RETRY_DELAY_MS * attempt, abort);
+      if (abort.aborted) throw error;
     }
   }
 

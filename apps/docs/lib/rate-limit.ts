@@ -87,6 +87,38 @@ const getPublicAssistantRateLimits = async () => {
         "1d",
       ),
     }),
+    mcpTemplateIpBurst: new Ratelimit({
+      redis,
+      prefix: "aui:mcp-template:ip:burst",
+      limiter: Ratelimit.fixedWindow(15, "60s"),
+    }),
+    mcpTemplateIpDaily: new Ratelimit({
+      redis,
+      prefix: "aui:mcp-template:ip:daily",
+      limiter: Ratelimit.fixedWindow(
+        positiveSafeInteger(
+          process.env.AUI_MCP_TEMPLATE_REQUESTS_PER_IP_PER_DAY,
+          500,
+        ),
+        "1d",
+      ),
+    }),
+    mcpTemplateGlobalDaily: new Ratelimit({
+      redis,
+      prefix: "aui:mcp-template:global:daily",
+      limiter: Ratelimit.fixedWindow(
+        positiveSafeInteger(
+          process.env.AUI_MCP_TEMPLATE_GLOBAL_REQUESTS_PER_DAY,
+          5_000,
+        ),
+        "1d",
+      ),
+    }),
+    mcpTemplateGlobalAlert: new Ratelimit({
+      redis,
+      prefix: "aui:mcp-template:global:alert",
+      limiter: Ratelimit.fixedWindow(1, "10m"),
+    }),
   };
 };
 
@@ -113,8 +145,9 @@ function getClientIp(request: Request): string | null {
   return null;
 }
 
-async function runPublicAssistantRateLimit(
+async function runRateLimitChecks(
   request: Request,
+  surface: string,
   check: (limits: PublicAssistantRateLimits) => Promise<Response | null>,
 ): Promise<Response | null> {
   try {
@@ -125,7 +158,7 @@ async function runPublicAssistantRateLimit(
     console.error(
       JSON.stringify({
         level: "error",
-        message: "public_assistant_rate_limit_unavailable",
+        message: `${surface}_rate_limit_unavailable`,
         requestId: request.headers.get("x-vercel-id"),
         error: error instanceof Error ? error.message : String(error),
       }),
@@ -136,11 +169,11 @@ async function runPublicAssistantRateLimit(
   }
 }
 
-function missingClientIpResponse(request: Request): Response {
+function missingClientIpResponse(request: Request, surface: string): Response {
   console.error(
     JSON.stringify({
       level: "error",
-      message: "public_assistant_client_ip_missing",
+      message: `${surface}_client_ip_missing`,
       requestId: request.headers.get("x-vercel-id"),
     }),
   );
@@ -161,9 +194,9 @@ export async function checkPublicAssistantRateLimit(
   request: Request,
   sessionId: string,
 ): Promise<Response | null> {
-  return runPublicAssistantRateLimit(request, async (limits) => {
+  return runRateLimitChecks(request, "public_assistant", async (limits) => {
     const ip = getClientIp(request);
-    if (!ip) return missingClientIpResponse(request);
+    if (!ip) return missingClientIpResponse(request, "public_assistant");
 
     const ipBurst = await limits.ipBurst.limit(ip);
     if (!ipBurst.success) {
@@ -207,9 +240,9 @@ export async function checkPublicAssistantRateLimit(
 export async function checkAnonymousSessionIssuanceRateLimit(
   request: Request,
 ): Promise<Response | null> {
-  return runPublicAssistantRateLimit(request, async (limits) => {
+  return runRateLimitChecks(request, "public_assistant", async (limits) => {
     const ip = getClientIp(request);
-    if (!ip) return missingClientIpResponse(request);
+    if (!ip) return missingClientIpResponse(request, "public_assistant");
 
     const burst = await limits.sessionIssuanceBurst.limit(ip);
     if (!burst.success) {
@@ -218,6 +251,46 @@ export async function checkAnonymousSessionIssuanceRateLimit(
     const daily = await limits.sessionIssuanceDaily.limit(ip);
     if (!daily.success) {
       return limitResponse("Anonymous session limit exceeded", daily.reset);
+    }
+    return null;
+  });
+}
+
+export async function checkMcpTemplateToolRateLimit(
+  request: Request,
+): Promise<Response | null> {
+  return runRateLimitChecks(request, "mcp_template", async (limits) => {
+    const ip = getClientIp(request);
+    if (!ip) return missingClientIpResponse(request, "mcp_template");
+
+    const burst = await limits.mcpTemplateIpBurst.limit(ip);
+    if (!burst.success) {
+      return limitResponse("Template tool rate limit exceeded", burst.reset);
+    }
+
+    const daily = await limits.mcpTemplateIpDaily.limit(ip);
+    if (!daily.success) {
+      return limitResponse("Template tool daily limit exceeded", daily.reset);
+    }
+
+    const globalDaily = await limits.mcpTemplateGlobalDaily.limit("all");
+    if (!globalDaily.success) {
+      const alert = await limits.mcpTemplateGlobalAlert
+        .limit("all")
+        .catch(() => null);
+      if (alert?.success) {
+        console.error(
+          JSON.stringify({
+            level: "error",
+            message: "mcp_template_global_limit_exceeded",
+            requestId: request.headers.get("x-vercel-id"),
+          }),
+        );
+      }
+      return limitResponse(
+        "Template tool usage limit exceeded",
+        globalDaily.reset,
+      );
     }
     return null;
   });
