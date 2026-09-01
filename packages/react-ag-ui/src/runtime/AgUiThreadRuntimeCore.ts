@@ -49,6 +49,7 @@ import {
   toAgUiTools,
 } from "./adapter/conversions";
 import { createAgUiSubscriber } from "./adapter/subscriber";
+import { iterateToolCallParts, mapToolCallPartsDeep } from "./tool-call-tree";
 import {
   buildToolApprovalResume,
   projectAgUiToolApprovals,
@@ -434,8 +435,7 @@ export class AgUiThreadRuntimeCore {
     const assistant = this.findRequiresActionAssistant("tool-calls");
     if (!assistant) return null;
     const toolCallIds: string[] = [];
-    for (const part of assistant.content) {
-      if (part.type !== "tool-call") continue;
+    for (const part of iterateToolCallParts(assistant.content)) {
       if (isResolvedToolCall(part)) continue;
       toolCallIds.push(part.toolCallId);
     }
@@ -552,9 +552,9 @@ export class AgUiThreadRuntimeCore {
     const gated = projectAgUiToolApprovals(
       pending.interrupts,
       new Set(
-        (gatedMessage?.content ?? [])
-          .filter((part) => part.type === "tool-call")
-          .map((part) => part.toolCallId),
+        Array.from(iterateToolCallParts(gatedMessage?.content ?? [])).map(
+          (part) => part.toolCallId,
+        ),
       ),
     );
     const isGated = [...gated.values()].some(
@@ -769,9 +769,8 @@ export class AgUiThreadRuntimeCore {
     for (let index = messages.length - 1; index >= 0; index--) {
       const message = messages[index];
       if (!message || message.role !== "assistant") continue;
-      for (const part of message.content) {
-        if (part.type !== "tool-call" || part.toolCallId !== toolCallId)
-          continue;
+      for (const part of iterateToolCallParts(message.content)) {
+        if (part.toolCallId !== toolCallId) continue;
         if (!isResolvedToolCall(part)) {
           return message.id;
         }
@@ -785,8 +784,8 @@ export class AgUiThreadRuntimeCore {
     const updated = this.session.updateMessage(messageId, (message) => {
       if (message.role !== "assistant") return message;
       const assistant = message as ThreadAssistantMessage;
-      const content = assistant.content.map((part) => {
-        if (part.type !== "tool-call" || isResolvedToolCall(part)) return part;
+      const { content } = mapToolCallPartsDeep(assistant.content, (part) => {
+        if (isResolvedToolCall(part)) return part;
         return {
           ...part,
           result: { error: "Tool call cancelled by user" },
@@ -799,13 +798,19 @@ export class AgUiThreadRuntimeCore {
   }
 
   addToolResult(options: AddToolResultOptions): void {
-    const updated = this.session.updateMessage(options.messageId, (message) => {
+    // Core's ToolInvocationTracker resolves a nested call to the nested
+    // subagent message's id, which is not a session message; re-anchor on the
+    // top-level message that owns the tree so the update can land.
+    const sessionMessageId = this.session.tryGetMessage(options.messageId)
+      ? options.messageId
+      : this.findMessageIdForToolCall(options.toolCallId);
+    if (sessionMessageId === undefined) return;
+    const updated = this.session.updateMessage(sessionMessageId, (message) => {
       if (message.role !== "assistant") return message;
       const assistant = message as ThreadAssistantMessage;
       let matchedToolCall = false;
-      const content = assistant.content.map((part) => {
-        if (part.type !== "tool-call" || part.toolCallId !== options.toolCallId)
-          return part;
+      const { content } = mapToolCallPartsDeep(assistant.content, (part) => {
+        if (part.toolCallId !== options.toolCallId) return part;
         matchedToolCall = true;
         return {
           ...part,
@@ -820,7 +825,7 @@ export class AgUiThreadRuntimeCore {
 
     if (!updated) return;
     this.notifyUpdate();
-    this.maybeResumeAfterToolResults(options.messageId);
+    this.maybeResumeAfterToolResults(sessionMessageId);
   }
 
   sendA2uiAction(action: Record<string, unknown>): void {
@@ -873,9 +878,13 @@ export class AgUiThreadRuntimeCore {
     ) {
       return false;
     }
-    const allResolved = assistant.content.every(
-      (part) => part.type !== "tool-call" || isResolvedToolCall(part),
-    );
+    let allResolved = true;
+    for (const part of iterateToolCallParts(assistant.content)) {
+      if (!isResolvedToolCall(part)) {
+        allResolved = false;
+        break;
+      }
+    }
     if (!allResolved) return false;
 
     const updated = this.session.updateMessage(messageId, (current) =>
@@ -1472,19 +1481,17 @@ export class AgUiThreadRuntimeCore {
     next: ThreadAssistantMessage["content"],
   ): ThreadAssistantMessage["content"] {
     const resolved = new Map<string, ToolCallMessagePart>();
-    for (const part of previous) {
-      if (part.type === "tool-call" && isResolvedToolCall(part)) {
+    for (const part of iterateToolCallParts(previous)) {
+      if (isResolvedToolCall(part)) {
         resolved.set(part.toolCallId, part);
       }
     }
     if (resolved.size === 0) return next;
 
-    let changed = false;
-    const merged = next.map((part) => {
-      if (part.type !== "tool-call" || isResolvedToolCall(part)) return part;
+    const { content: merged, changed } = mapToolCallPartsDeep(next, (part) => {
+      if (isResolvedToolCall(part)) return part;
       const prior = resolved.get(part.toolCallId);
       if (!prior) return part;
-      changed = true;
       return {
         ...part,
         result: prior.result,
@@ -1492,7 +1499,7 @@ export class AgUiThreadRuntimeCore {
         ...(prior.isError !== undefined ? { isError: prior.isError } : {}),
       };
     });
-    return changed ? (merged as ThreadAssistantMessage["content"]) : next;
+    return changed ? merged : next;
   }
 
   private mergeAssistantMetadata(
@@ -1597,9 +1604,8 @@ export class AgUiThreadRuntimeCore {
       const assistant = message as ThreadAssistantMessage;
       const mcpAppUri = readMcpAppResourceUri(event.mcpResult?._meta);
       let matchedToolCall = false;
-      const content = assistant.content.map((part) => {
-        if (part.type !== "tool-call" || part.toolCallId !== event.toolCallId)
-          return part;
+      const { content } = mapToolCallPartsDeep(assistant.content, (part) => {
+        if (part.toolCallId !== event.toolCallId) return part;
         matchedToolCall = true;
         // An applied activity snapshot owns part.result; a later result only
         // fills what is missing, mirroring the aggregator's finishToolCall.
@@ -1683,9 +1689,8 @@ export class AgUiThreadRuntimeCore {
       if (message.role !== "assistant") return message;
       const assistant = message as ThreadAssistantMessage;
       let matchedToolCall = false;
-      const content = assistant.content.map((part) => {
-        if (part.type !== "tool-call" || part.toolCallId !== toolCallId)
-          return part;
+      const { content } = mapToolCallPartsDeep(assistant.content, (part) => {
+        if (part.toolCallId !== toolCallId) return part;
         matchedToolCall = true;
         return {
           ...part,
