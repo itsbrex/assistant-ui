@@ -14,7 +14,7 @@ import {
   type ReadonlyJSONValue,
 } from "assistant-stream/utils";
 import { isJSONValueEqual } from "../../utils/json/is-json-equal";
-import type { ThreadMessage } from "../../types/message";
+import type { ThreadMessage, ToolCallMessagePart } from "../../types/message";
 
 const TOOL_EXECUTION_ID = Symbol.for("assistant-stream.tool-execution-id");
 
@@ -116,6 +116,9 @@ const getToolExecutionId = (value: object): symbol | undefined =>
 export class ToolInvocationTracker {
   private readonly _getTools: () => Record<string, Tool> | undefined;
   private readonly _callbacks: ToolInvocationTracker.Callbacks;
+  private readonly _isClientToolCall: (
+    toolCall: ToolCallMessagePart,
+  ) => boolean;
 
   private readonly _entries = new Map<string, ToolCallEntry>();
   private readonly _humanInput = new Map<
@@ -154,9 +157,11 @@ export class ToolInvocationTracker {
   constructor(
     getTools: () => Record<string, Tool> | undefined,
     callbacks: ToolInvocationTracker.Callbacks,
+    isClientToolCall?: (toolCall: ToolCallMessagePart) => boolean,
   ) {
     this._getTools = getTools;
     this._callbacks = callbacks;
+    this._isClientToolCall = isClientToolCall ?? (() => true);
 
     this._initPipeline();
   }
@@ -582,6 +587,15 @@ export class ToolInvocationTracker {
     return tool?.execute !== undefined || tool?.streamCall !== undefined;
   }
 
+  private _warnProviderOwnedSkip(toolName: string, toolCallId: string): void {
+    if (process.env.NODE_ENV === "production") return;
+    if (this._getTools()?.[toolName]?.execute === undefined) return;
+    console.warn(
+      "[ToolInvocationTracker] the runtime reports this tool call as provider-owned, so the registered execute is skipped; the provider has to hand the call to the client for it to run (see EDGE_CASES.md A.9)",
+      { toolCallId, toolName },
+    );
+  }
+
   private _shouldCloseArgsStream({
     toolName,
     argsText,
@@ -788,10 +802,14 @@ export class ToolInvocationTracker {
         }
 
         if (!entry) {
+          const providerOwned =
+            content.result === undefined && !this._isClientToolCall(content);
+          if (providerOwned)
+            this._warnProviderOwnedSkip(content.toolName, content.toolCallId);
           entry = this._startActiveEntry(
             content.toolCallId,
             content.toolName,
-            content.result !== undefined,
+            content.result !== undefined || providerOwned,
           );
         }
 
