@@ -1,6 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import {
+  SNAPSHOT_BYTE_BUDGET,
+  formatBudgetError,
+} from "./source-snapshot-budget.mts";
 
 const DOCS_ROOT = process.cwd();
 const REPO_ROOT = path.resolve(DOCS_ROOT, "../..");
@@ -11,6 +15,7 @@ const SOURCE_SNAPSHOT_EXCLUDE = [
   /pnpm-lock\.yaml$/,
   /package-lock\.json$/,
   /yarn\.lock$/,
+  /uv\.lock$/,
   /\.png$/,
   /\.jpg$/,
   /\.jpeg$/,
@@ -39,9 +44,17 @@ async function main() {
     );
 
   const snapshot = await buildSnapshot(files);
+  const serialized = JSON.stringify(snapshot);
+  const size = Buffer.byteLength(serialized, "utf-8");
+
+  if (size > SNAPSHOT_BYTE_BUDGET) {
+    console.error(formatBudgetError(snapshot, size));
+    process.exitCode = 1;
+    return;
+  }
 
   await fs.mkdir(OUTPUT_DIR, { recursive: true });
-  await fs.writeFile(OUTPUT_PATH, JSON.stringify(snapshot));
+  await fs.writeFile(OUTPUT_PATH, serialized);
 }
 
 async function buildSnapshot(files: string[]) {
