@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useInsertionEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   pickExternalStoreSharedOptions,
   type AttachmentAdapter,
@@ -136,10 +143,14 @@ const useAdkRuntimeImpl = (options: UseAdkRuntimeOptions) => {
   });
 
   const loadRef = useRef(load);
-  loadRef.current = load;
+  useInsertionEffect(() => {
+    loadRef.current = load;
+  }, [load]);
   const loadController = useMemo(createAbortableThreadLoad, []);
   const messagesRef = useRef(messages);
-  messagesRef.current = messages;
+  useInsertionEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
   const [isLoadingThread, setIsLoadingThread] = useState(
     () =>
       load !== undefined && aui.threadListItem.getState().externalId != null,
@@ -154,7 +165,9 @@ const useAdkRuntimeImpl = (options: UseAdkRuntimeOptions) => {
   );
   const effectiveIsRunning = isRunning || hasExecutingTools;
   const isRunningRef = useRef(effectiveIsRunning);
-  isRunningRef.current = effectiveIsRunning;
+  useInsertionEffect(() => {
+    isRunningRef.current = effectiveIsRunning;
+  }, [effectiveIsRunning]);
 
   const handleSendMessage = async (
     msgs: AdkMessage[],
@@ -170,11 +183,17 @@ const useAdkRuntimeImpl = (options: UseAdkRuntimeOptions) => {
 
   const { approvals: toolApprovals, key: toolApprovalsKey } =
     projectAdkToolApprovals(messages);
+  // The messageConverter memo below reads this during render, where the ref
+  // must carry the same render's approvals; a commit-scoped write would feed
+  // the memo the previous commit's approvals whenever the key changes. No
+  // callback reads it — approval replies project from the committed messages.
   const toolApprovalsRef = useRef(toolApprovals);
   toolApprovalsRef.current = toolApprovals;
 
   const longRunningToolIdsRef = useRef(longRunningToolIds);
-  longRunningToolIdsRef.current = longRunningToolIds;
+  useInsertionEffect(() => {
+    longRunningToolIdsRef.current = longRunningToolIds;
+  }, [longRunningToolIds]);
   // ADK resolves every call it did not mark long-running itself, and yields
   // that call to the client one or more events before its own response, so
   // only a long-running call is the client's to execute.
@@ -199,10 +218,17 @@ const useAdkRuntimeImpl = (options: UseAdkRuntimeOptions) => {
   });
 
   const threadMessagesRef = useRef(threadMessages);
-  threadMessagesRef.current = threadMessages;
+  useInsertionEffect(() => {
+    threadMessagesRef.current = threadMessages;
+  }, [threadMessages]);
 
+  // Staging assigns adkMessagesRef.current directly, so the effect must key on
+  // the committed messages alone; a dep-less publication would clobber the
+  // optimistic value on any unrelated commit.
   const adkMessagesRef = useRef(messages);
-  adkMessagesRef.current = messages;
+  useInsertionEffect(() => {
+    adkMessagesRef.current = messages;
+  }, [messages]);
 
   const stagedMessagesRef = useRef(
     new Map<
@@ -444,7 +470,12 @@ const useAdkRuntimeImpl = (options: UseAdkRuntimeOptions) => {
     },
     onRespondToToolApproval: async (options) => {
       await handleSendMessage(
-        [toAdkToolConfirmationReply(options, toolApprovalsRef.current)],
+        [
+          toAdkToolConfirmationReply(
+            options,
+            projectAdkToolApprovals(adkMessagesRef.current).approvals,
+          ),
+        ],
         {},
       );
     },
