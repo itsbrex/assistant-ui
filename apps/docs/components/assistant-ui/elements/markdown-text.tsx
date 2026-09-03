@@ -1,6 +1,7 @@
 "use client";
 
 import "@assistant-ui/react-markdown/styles/dot.css";
+import "katex/dist/katex.min.css";
 
 import {
   type CodeHeaderProps,
@@ -8,18 +9,49 @@ import {
   unstable_memoizeMarkdownComponents as memoizeMarkdownComponents,
   useIsMarkdownCodeBlock,
 } from "@assistant-ui/react-markdown";
+import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
 import { type FC, memo, useState } from "react";
 import { CheckIcon, CopyIcon } from "lucide-react";
+import dynamic from "next/dynamic";
 
 import { SyntaxHighlighter } from "@/components/assistant-ui/elements/shiki-highlighter.aui";
 import { TooltipIconButton } from "@/components/assistant-ui/elements/tooltip-icon-button";
+import { preprocessMath } from "@/lib/markdown-math";
 import { cn } from "@/lib/utils";
+
+// The diagram engine only loads once a mermaid fence arrives, so every other
+// route that renders markdown keeps it out of its initial chunk.
+const MermaidDiagram = dynamic(
+  () =>
+    import("@/components/assistant-ui/elements/mermaid-diagram.aui").then(
+      (mod) => mod.MermaidDiagram,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div
+        aria-hidden
+        className="aui-mermaid-skeleton bg-muted h-32 animate-pulse rounded-b-lg"
+      />
+    ),
+  },
+);
+
+const remarkPlugins = [remarkGfm, remarkMath];
+const rehypePlugins = [rehypeKatex];
+const componentsByLanguage = {
+  mermaid: { SyntaxHighlighter: MermaidDiagram },
+};
 
 const MarkdownTextImpl = () => {
   return (
     <MarkdownTextPrimitive
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={remarkPlugins}
+      rehypePlugins={rehypePlugins}
+      componentsByLanguage={componentsByLanguage}
+      preprocess={preprocessMath}
       className="aui-md"
       components={defaultComponents}
       defer
