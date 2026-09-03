@@ -23,8 +23,41 @@ describe("rewriteLatexBracketDelimiters", () => {
     expect(rewriteLatexBracketDelimiters("\\( x \\)")).toBe("$x$");
   });
 
-  it("spans newlines only for display math", () => {
-    expect(rewriteLatexBracketDelimiters("\\[a\nb\\]")).toBe("$$a\nb$$");
+  it("fences a multiline display body", () => {
+    expect(
+      rewriteLatexBracketDelimiters(
+        "\\[\\begin{aligned}\nS_n-rS_n\n&=a-ar^{n+1}.\n\\end{aligned}\\]",
+      ),
+    ).toBe("$$\n\\begin{aligned}\nS_n-rS_n\n&=a-ar^{n+1}.\n\\end{aligned}\n$$");
+  });
+
+  it("gives the fence markers their own lines mid-paragraph", () => {
+    expect(rewriteLatexBracketDelimiters("Thus \\[a\nb\\] therefore.")).toBe(
+      "Thus \n$$\na\nb\n$$\n therefore.",
+    );
+    expect(rewriteLatexBracketDelimiters("\\[a\nb\\].")).toBe(
+      "$$\na\nb\n$$\n.",
+    );
+  });
+
+  it("lifts a multiline display body out of its list item", () => {
+    expect(rewriteLatexBracketDelimiters("- item \\[\na\nb\n\\]\n- next")).toBe(
+      "- item \n$$\na\nb\n$$\n- next",
+    );
+  });
+
+  it("keeps a single-line display body on its line", () => {
+    expect(rewriteLatexBracketDelimiters("See \\[x=1\\] ok.")).toBe(
+      "See $$x=1$$ ok.",
+    );
+  });
+
+  it("leaves an empty delimiter pair as written", () => {
+    expect(rewriteLatexBracketDelimiters("\\[ \\]")).toBe("\\[ \\]");
+    expect(rewriteLatexBracketDelimiters("\\( \\)")).toBe("\\( \\)");
+  });
+
+  it("does not span newlines for inline math", () => {
     expect(rewriteLatexBracketDelimiters("\\(a\nb\\)")).toBe("\\(a\nb\\)");
   });
 
