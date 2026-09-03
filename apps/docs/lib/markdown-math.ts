@@ -7,7 +7,10 @@ const CODE_FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
 const CODE_FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t\r]*$/;
 const MATH_FENCE = /^ {0,3}\$\$[ \t\r]*$/;
 const MATH_FENCE_WITH_CONTENT = /^ {0,3}\$\$(?!\$)[ \t]*(\S.*?)[ \t\r]*$/;
+const MATH_ONE_LINE = /^ {0,3}\$\$(?!\$)[ \t]*(\S.*?\S|\S)[ \t]*\$\$[ \t\r]*$/;
 const TRAILING_MATH_FENCE = /\S[ \t]*\$\$[ \t\r]*$/;
+
+const indentOf = (line: string) => /^[ \t]*/.exec(line)![0];
 
 const closesFence = (line: string, fence: string) => {
   const close = CODE_FENCE_CLOSE.exec(line)?.[1];
@@ -20,11 +23,14 @@ const closesFence = (line: string, fence: string) => {
 // display block when the closing fence sits on its own line; models often
 // start the first equation line with `$$` and end the last one with `$$`,
 // which drops the first line and turns the rest of the reply into one
-// unterminated formula.
+// unterminated formula. A `$$…$$` line standing alone is inline math to
+// remark-math, so it renders left aligned while fenced blocks center; it
+// becomes a fenced block so every display equation sits the same way.
 export function closeDisplayMathFences(text: string): string {
   const out: string[] = [];
   let codeFence: string | undefined;
   let inMath = false;
+  let mathIndent = "";
 
   for (const line of text.split("\n")) {
     if (codeFence !== undefined) {
@@ -35,13 +41,14 @@ export function closeDisplayMathFences(text: string): string {
 
     if (MATH_FENCE.test(line)) {
       inMath = !inMath;
+      if (inMath) mathIndent = indentOf(line);
       out.push(line);
       continue;
     }
 
     if (inMath) {
       if (!line.startsWith("$$") && TRAILING_MATH_FENCE.test(line)) {
-        out.push(line.replace(/[ \t]*\$\$[ \t\r]*$/, ""), "$$");
+        out.push(line.replace(/[ \t]*\$\$[ \t\r]*$/, ""), `${mathIndent}$$`);
         inMath = false;
       } else {
         out.push(line);
@@ -49,10 +56,18 @@ export function closeDisplayMathFences(text: string): string {
       continue;
     }
 
+    const indent = indentOf(line);
+    const oneLine = MATH_ONE_LINE.exec(line)?.[1];
+    if (oneLine !== undefined && !oneLine.includes("$$")) {
+      out.push(`${indent}$$`, `${indent}${oneLine}`, `${indent}$$`);
+      continue;
+    }
+
     const opener = MATH_FENCE_WITH_CONTENT.exec(line)?.[1];
     if (opener !== undefined && !opener.includes("$$")) {
-      out.push("$$", opener);
+      out.push(`${indent}$$`, `${indent}${opener}`);
       inMath = true;
+      mathIndent = indent;
       continue;
     }
 
