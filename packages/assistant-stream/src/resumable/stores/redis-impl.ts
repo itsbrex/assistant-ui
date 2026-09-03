@@ -35,10 +35,50 @@ export type PipelineCommand =
       readonly ttlSec: number;
     };
 
+export type RedisFinalizeOptions = {
+  readonly metaKey: string;
+  readonly expectedMeta: string;
+  readonly nextMeta: string;
+  readonly dataKey: string;
+  readonly fields: Record<string, string>;
+  readonly ttlSec: number;
+};
+
+// `XADD *` is non-deterministic; Redis 5.x and 6.x configured with
+// `lua-replicate-commands no` reject it unless effects replication is requested.
+export const FINALIZE_IF_UNCHANGED_SCRIPT = `
+redis.replicate_commands()
+if redis.call("GET", KEYS[1]) ~= ARGV[1] then
+  return 0
+end
+local xadd = { "XADD", KEYS[2], "*" }
+for i = 4, #ARGV do
+  table.insert(xadd, ARGV[i])
+end
+redis.call(unpack(xadd))
+redis.call("EXPIRE", KEYS[2], ARGV[3])
+redis.call("SET", KEYS[1], ARGV[2], "EX", ARGV[3])
+return 1
+`;
+
+export const FINALIZE_IF_UNCHANGED_KEY_COUNT = 2;
+
+export function finalizeIfUnchangedArgs(
+  options: RedisFinalizeOptions,
+): string[] {
+  return [
+    options.metaKey,
+    options.dataKey,
+    options.expectedMeta,
+    options.nextMeta,
+    String(options.ttlSec),
+    ...Object.entries(options.fields).flat(),
+  ];
+}
+
 /**
  * Structural Redis-client interface. The bundled `redis` and `ioredis`
- * adapters wrap their respective clients to satisfy it; custom or proxied
- * clients can implement it directly.
+ * adapters wrap their respective clients to satisfy it.
  */
 export interface RedisLikeClient {
   setNX(key: string, value: string, ttlSec: number): Promise<boolean>;
@@ -60,6 +100,11 @@ export interface RedisLikeClient {
   >;
   /** Executes the commands as a single pipeline batch (one round trip). */
   pipeline(commands: readonly PipelineCommand[]): Promise<void>;
+  /**
+   * Atomically finalizes a stream only while its metadata is unchanged, so a
+   * producer superseded by a newer acquisition cannot finalize the replacement.
+   */
+  finalizeIfUnchanged(options: RedisFinalizeOptions): Promise<boolean>;
 }
 
 export type RedisResumableStreamStoreOptions = {
@@ -167,7 +212,11 @@ export class RedisResumableStreamStore implements ResumableStreamStore {
   ): Promise<void> {
     validateStreamId(streamId);
     const metaKey = this.metaKey(streamId);
-    const existing = await this.readMeta(streamId);
+    const existingRaw = await this.client.get(metaKey);
+    if (existingRaw === null) {
+      throw new Error(`Stream not found: ${streamId}`);
+    }
+    const existing = parseMeta(existingRaw);
     if (!existing) {
       throw new Error(`Stream not found: ${streamId}`);
     }
@@ -191,11 +240,18 @@ export class RedisResumableStreamStore implements ResumableStreamStore {
       fields[FIELD_ERROR] = error ?? "Stream errored";
     }
     const dataKey = this.dataKey(streamId, existing.generation);
-    await this.client.pipeline([
-      { type: "set", key: metaKey, value: meta, ttlSec },
-      { type: "xAdd", key: dataKey, fields },
-      { type: "expire", key: dataKey, ttlSec },
-    ]);
+    const finalized = await this.client.finalizeIfUnchanged({
+      metaKey,
+      expectedMeta: existingRaw,
+      nextMeta: meta,
+      dataKey,
+      fields,
+      ttlSec,
+    });
+    // Keeping the fencing token when the compare-and-finalize loses is what
+    // makes a later append from this superseded producer throw instead of
+    // writing into the replacement generation.
+    if (!finalized) return;
     this.acquiredGenerations.delete(streamId);
   }
 

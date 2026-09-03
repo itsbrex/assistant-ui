@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   RedisResumableStreamStore,
+  type RedisFinalizeOptions,
   type PipelineCommand,
   type RedisLikeClient,
 } from "./redis-impl";
@@ -18,6 +19,7 @@ class FakeRedisClient implements RedisLikeClient {
     }>
   >();
   onFirstAcquire: (() => Promise<void>) | undefined;
+  onNextGet: (() => Promise<void>) | undefined;
   private nextStreamId = 0;
 
   async setNX(key: string, value: string): Promise<boolean> {
@@ -34,7 +36,11 @@ class FakeRedisClient implements RedisLikeClient {
   }
 
   async get(key: string): Promise<string | null> {
-    return this.strings.get(key) ?? null;
+    const value = this.strings.get(key) ?? null;
+    const onNextGet = this.onNextGet;
+    this.onNextGet = undefined;
+    await onNextGet?.();
+    return value;
   }
 
   async expire(): Promise<void> {}
@@ -92,6 +98,14 @@ class FakeRedisClient implements RedisLikeClient {
           break;
       }
     }
+  }
+
+  async finalizeIfUnchanged(options: RedisFinalizeOptions): Promise<boolean> {
+    if (this.strings.get(options.metaKey) !== options.expectedMeta)
+      return false;
+    await this.xAdd(options.dataKey, options.fields);
+    await this.set(options.metaKey, options.nextMeta);
+    return true;
   }
 }
 
@@ -174,6 +188,31 @@ describe("RedisResumableStreamStore", () => {
     await expect(store.status("current")).resolves.toBe("done");
   });
 
+  it("does not resurrect a stream whose metadata expired mid-finalize", async () => {
+    const client = new FakeRedisClient();
+    const keyPrefix = "test";
+    const streamId = "expired";
+    const store = new RedisResumableStreamStore(client, { keyPrefix });
+    await store.acquire(streamId);
+
+    let resumeFinalizer!: () => void;
+    const finalizerPaused = new Promise<void>((resolve) => {
+      client.onNextGet = () =>
+        new Promise<void>((resume) => {
+          resumeFinalizer = resume;
+          resolve();
+        });
+    });
+    const finalizing = store.finalize(streamId, "done");
+    await finalizerPaused;
+
+    client.strings.delete(`${keyPrefix}:{${streamId}}:meta`);
+    resumeFinalizer();
+    await finalizing;
+
+    await expect(store.status(streamId)).resolves.toBe("missing");
+  });
+
   it("fences a superseded producer out of the reacquired stream", async () => {
     const client = new FakeRedisClient();
     const keyPrefix = "test";
@@ -206,6 +245,37 @@ describe("RedisResumableStreamStore", () => {
       chunks.push(decoder.decode(entry.chunk));
     }
     expect(chunks).toEqual(["fresh"]);
+  });
+
+  it("does not let a stale finalizer overwrite a reacquired stream", async () => {
+    const client = new FakeRedisClient();
+    const keyPrefix = "test";
+    const streamId = "finalize-race";
+    const metaKey = `${keyPrefix}:{${streamId}}:meta`;
+    const staleStore = new RedisResumableStreamStore(client, { keyPrefix });
+    const freshStore = new RedisResumableStreamStore(client, { keyPrefix });
+    await staleStore.acquire(streamId);
+
+    let resumeFinalizer!: () => void;
+    const finalizerPaused = new Promise<void>((resolve) => {
+      client.onNextGet = () =>
+        new Promise<void>((resume) => {
+          resumeFinalizer = resume;
+          resolve();
+        });
+    });
+    const finalizing = staleStore.finalize(streamId, "done");
+    await finalizerPaused;
+
+    client.strings.delete(metaKey);
+    await expect(freshStore.acquire(streamId)).resolves.toBe("producer");
+    resumeFinalizer();
+    await finalizing;
+
+    await expect(freshStore.status(streamId)).resolves.toBe("streaming");
+    await expect(
+      staleStore.append(streamId, encoder.encode("stale")),
+    ).rejects.toThrow(/superseded/);
   });
 
   it("stops an existing reader when the stream generation changes", async () => {
