@@ -12,6 +12,8 @@ import { ModelSelectorSearchSample } from "@/components/pages/docs/samples/model
 import * as ModelSelectorSearchRadixSample from "@/components/pages/docs/samples/model-selector/search-and-filter.radix";
 import { ModelSelectorEffortSample } from "@/components/pages/docs/samples/model-selector/reasoning-effort";
 import * as ModelSelectorEffortRadixSample from "@/components/pages/docs/samples/model-selector/reasoning-effort.radix";
+import { ModelSelectorMetadataSample } from "@/components/pages/docs/samples/model-selector/capability-metadata";
+import * as ModelSelectorMetadataRadixSample from "@/components/pages/docs/samples/model-selector/capability-metadata.radix";
 
 Model selector is a popover that lists AI models and, for models that support it, a reasoning effort level: Low, Medium, High, or a custom set. With a runtime the selection registers with assistant-ui's `ModelContext` system automatically, so it reaches your backend on every request; standalone you hold the value and effort yourself. It comes in two designs: the runtime variant renders a popover of models with reasoning-effort controls, and the static variant, `ModelPicker`, renders a full-page list grouped by family with pricing and capability chips (see [The model-picker design](#the-model-picker-design)).
 
@@ -175,6 +177,16 @@ Each model's `icon` accepts any `ReactNode` and renders in both the trigger and 
 ```tsx
 { id: "claude-opus-4.5", name: "Claude Opus 4.5", icon: <ClaudeLogo /> }
 ```
+
+### Capability metadata
+
+`ModelSelectorItem` accepts custom `children` in place of the default name and description row. This demo uses that to render capability badges.
+
+Open the picker to compare model capabilities. Select a row to update the trigger.
+
+<PreviewCode file="components/pages/docs/samples/model-selector/capability-metadata" name="ModelSelectorWithMetadata" base={<ModelSelectorMetadataSample />}>
+  <ModelSelectorMetadataRadixSample.ModelSelectorMetadataSample />
+</PreviewCode>
 
 ### Search
 
