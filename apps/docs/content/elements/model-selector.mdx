@@ -8,6 +8,8 @@ import { ModelSelectorSelectedSample } from "@/components/pages/docs/samples/mod
 import * as ModelSelectorSelectedRadixSample from "@/components/pages/docs/samples/model-selector/selected-model.radix";
 import { ModelSelectorGroupedSample } from "@/components/pages/docs/samples/model-selector/provider-groups-and-availability";
 import * as ModelSelectorGroupedRadixSample from "@/components/pages/docs/samples/model-selector/provider-groups-and-availability.radix";
+import { ModelSelectorSearchSample } from "@/components/pages/docs/samples/model-selector/search-and-filter";
+import * as ModelSelectorSearchRadixSample from "@/components/pages/docs/samples/model-selector/search-and-filter.radix";
 
 Model selector is a popover that lists AI models and, for models that support it, a reasoning effort level: Low, Medium, High, or a custom set. With a runtime the selection registers with assistant-ui's `ModelContext` system automatically, so it reaches your backend on every request; standalone you hold the value and effort yourself. It comes in two designs: the runtime variant renders a popover of models with reasoning-effort controls, and the static variant, `ModelPicker`, renders a full-page list grouped by family with pricing and capability chips (see [The model-picker design](#the-model-picker-design)).
 
@@ -186,6 +188,12 @@ Search is opt-in: pass `searchable` to the connected `ModelSelector`, or to `Mod
 {/* or, standalone: */}
 <ModelSelectorContent searchable />
 ```
+
+Open the picker and search for a model or provider. Select a result to update the trigger.
+
+<PreviewCode file="components/pages/docs/samples/model-selector/search-and-filter" name="SearchableModelSelector" base={<ModelSelectorSearchSample />}>
+  <ModelSelectorSearchRadixSample.ModelSelectorSearchSample />
+</PreviewCode>
 
 ### Provider groups and availability
 
