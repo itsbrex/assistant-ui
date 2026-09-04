@@ -10,6 +10,8 @@ import { ModelSelectorGroupedSample } from "@/components/pages/docs/samples/mode
 import * as ModelSelectorGroupedRadixSample from "@/components/pages/docs/samples/model-selector/provider-groups-and-availability.radix";
 import { ModelSelectorSearchSample } from "@/components/pages/docs/samples/model-selector/search-and-filter";
 import * as ModelSelectorSearchRadixSample from "@/components/pages/docs/samples/model-selector/search-and-filter.radix";
+import { ModelSelectorEffortSample } from "@/components/pages/docs/samples/model-selector/reasoning-effort";
+import * as ModelSelectorEffortRadixSample from "@/components/pages/docs/samples/model-selector/reasoning-effort.radix";
 
 Model selector is a popover that lists AI models and, for models that support it, a reasoning effort level: Low, Medium, High, or a custom set. With a runtime the selection registers with assistant-ui's `ModelContext` system automatically, so it reaches your backend on every request; standalone you hold the value and effort yourself. It comes in two designs: the runtime variant renders a popover of models with reasoning-effort controls, and the static variant, `ModelPicker`, renders a full-page list grouped by family with pricing and capability chips (see [The model-picker design](#the-model-picker-design)).
 
@@ -123,16 +125,11 @@ The Thinking row (`Effort`) mounts only while the selected model has `efforts` s
 
 A model that declares `efforts` shows the Thinking row. `efforts: true` enables the default Low / Medium / High levels; a list of `{ id, name }` objects defines a custom set instead, and omitting `efforts` hides the row entirely for that model.
 
-```tsx
-{
-  id: "gpt-5.6-sol",
-  name: "GPT-5.6 Sol",
-  efforts: [
-    { id: "minimal", name: "Minimal" },
-    { id: "high", name: "High" },
-  ],
-}
-```
+Open the picker and pick a level: the trigger shows it next to the model name, and the picker stays open so you can compare levels.
+
+<PreviewCode file="components/pages/docs/samples/model-selector/reasoning-effort" name="ModelSelectorWithEffort" base={<ModelSelectorEffortSample />}>
+  <ModelSelectorEffortRadixSample.ModelSelectorEffortSample />
+</PreviewCode>
 
 ### Custom effort UI
 
