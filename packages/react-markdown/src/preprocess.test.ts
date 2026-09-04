@@ -40,10 +40,56 @@ describe("rewriteLatexBracketDelimiters", () => {
     );
   });
 
-  it("lifts a multiline display body out of its list item", () => {
+  it("keeps a multiline display body inside its list item", () => {
     expect(rewriteLatexBracketDelimiters("- item \\[\na\nb\n\\]\n- next")).toBe(
-      "- item \n$$\na\nb\n$$\n- next",
+      "- item \n  $$\n  a\n  b\n  $$\n- next",
     );
+  });
+
+  it("keeps a multiline display body inside its blockquote", () => {
+    expect(
+      rewriteLatexBracketDelimiters("> quote \\[\na\nb\n\\]\n> after"),
+    ).toBe("> quote \n> $$\n> a\n> b\n> $$\n> after");
+  });
+
+  it("dedents a body whose lines share an indentation", () => {
+    expect(
+      rewriteLatexBracketDelimiters("- item \\[\n  a\n  b\n\\]\n- next"),
+    ).toBe("- item \n  $$\n  a\n  b\n  $$\n- next");
+  });
+
+  it("keeps relative indentation inside the body", () => {
+    expect(
+      rewriteLatexBracketDelimiters(
+        "- item \\[\n\\begin{aligned}\n  a &= b\n\\end{aligned}\n\\]\n- next",
+      ),
+    ).toBe(
+      "- item \n  $$\n  \\begin{aligned}\n    a &= b\n  \\end{aligned}\n  $$\n- next",
+    );
+  });
+
+  it("keeps the block prefix when inline math precedes the match", () => {
+    expect(
+      rewriteLatexBracketDelimiters("- see \\(y\\) \\[\na\nb\n\\]\n- next"),
+    ).toBe("- see $y$ \n  $$\n  a\n  b\n  $$\n- next");
+  });
+
+  it("keeps a body line that already carries the blockquote marker", () => {
+    expect(rewriteLatexBracketDelimiters("> q \\[\n>a\n>b\n\\]\n> after")).toBe(
+      "> q \n> $$\n>a\n>b\n> $$\n> after",
+    );
+  });
+
+  it("nests a body inside a list item written in a blockquote", () => {
+    expect(
+      rewriteLatexBracketDelimiters(">  - item \\[\na\nb\n\\]\n>  - next"),
+    ).toBe(">  - item \n>    $$\n>    a\n>    b\n>    $$\n>  - next");
+  });
+
+  it("reads the block prefix past a code span on the same line", () => {
+    expect(
+      rewriteLatexBracketDelimiters("- see `x` \\[\na\nb\n\\]\n- next"),
+    ).toBe("- see `x` \n  $$\n  a\n  b\n  $$\n- next");
   });
 
   it("keeps a single-line display body on its line", () => {
