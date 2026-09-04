@@ -199,6 +199,58 @@ describe("rewriteCustomMathTags", () => {
       rewriteCustomMathTags("[/inline]a[/inline] `[/inline]x[/inline]`"),
     ).toBe("$a$ `[/inline]x[/inline]`");
   });
+
+  it("fences a multiline math tag body", () => {
+    expect(
+      rewriteCustomMathTags(
+        "[/math]\\begin{aligned}\na&=b\n\\end{aligned}[/math]\nDone.",
+      ),
+    ).toBe("$$\n\\begin{aligned}\na&=b\n\\end{aligned}\n$$\nDone.");
+  });
+
+  it("gives the fence markers their own lines mid-paragraph", () => {
+    expect(rewriteCustomMathTags("Thus [/math]a\nb[/math] therefore.")).toBe(
+      "Thus \n$$\na\nb\n$$\n therefore.",
+    );
+  });
+
+  it("keeps a single-line math tag body on its line", () => {
+    expect(rewriteCustomMathTags("See [/math]x=1[/math] ok.")).toBe(
+      "See $$x=1$$ ok.",
+    );
+  });
+
+  it("does not add a blank line before a CRLF suffix", () => {
+    expect(rewriteCustomMathTags("[/math]\na\nb\n[/math]\r\nrest")).toBe(
+      "$$\na\nb\n$$\r\nrest",
+    );
+  });
+
+  it("rewrites a custom tag after an unclosed inline backtick run", () => {
+    expect(rewriteCustomMathTags("a ` b [/math]x[/math]")).toBe("a ` b $$x$$");
+  });
+
+  it("rewrites a custom tag after a mid-line code span", () => {
+    expect(rewriteCustomMathTags("a `code` [/math]x[/math]")).toBe(
+      "a `code` $$x$$",
+    );
+  });
+
+  it("leaves an empty math tag pair as written", () => {
+    expect(rewriteCustomMathTags("[/math][/math]")).toBe("[/math][/math]");
+    expect(rewriteCustomMathTags("[/inline][/inline] rest")).toBe(
+      "[/inline][/inline] rest",
+    );
+  });
+
+  it("leaves a whitespace-only tag pair as written", () => {
+    expect(rewriteCustomMathTags("[/math] \n [/math]\nrest")).toBe(
+      "[/math] \n [/math]\nrest",
+    );
+    expect(rewriteCustomMathTags("[/inline]   [/inline] rest")).toBe(
+      "[/inline]   [/inline] rest",
+    );
+  });
 });
 
 describe("normalizeMathDelimiters", () => {
