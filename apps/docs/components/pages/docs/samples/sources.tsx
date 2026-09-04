@@ -1,5 +1,6 @@
 "use client";
 
+import type { ComponentProps } from "react";
 import {
   Source,
   SourceIcon,
@@ -19,7 +20,7 @@ function VariantRow({
   variant,
 }: {
   label: string;
-  variant?: "outline" | "ghost" | "muted";
+  variant?: ComponentProps<typeof Source>["variant"];
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -55,6 +56,32 @@ export function SourcesSample() {
           status={{ type: "complete" }}
         />
       </div>
+    </SampleFrame>
+  );
+}
+
+const variants = [
+  "outline",
+  "secondary",
+  "muted",
+  "ghost",
+  "info",
+  "warning",
+  "success",
+  "destructive",
+] as const;
+
+export function SourcesVariantsSample() {
+  const source = sources[0]!;
+
+  return (
+    <SampleFrame className="flex h-auto flex-wrap items-center justify-center gap-2 p-6">
+      {variants.map((variant) => (
+        <Source key={variant} variant={variant} href={source.url}>
+          <SourceIcon url={source.url} />
+          <SourceTitle className="capitalize">{variant}</SourceTitle>
+        </Source>
+      ))}
     </SampleFrame>
   );
 }
