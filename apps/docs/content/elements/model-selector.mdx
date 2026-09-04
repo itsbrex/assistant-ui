@@ -3,6 +3,10 @@ title: "Model selector"
 description: "A searchable runtime model picker with grouped providers and reasoning effort controls."
 ---
 
+import { PreviewCode } from "@/components/pages/docs/preview-code.server";
+import { ModelSelectorSelectedSample } from "@/components/pages/docs/samples/model-selector/selected-model";
+import * as ModelSelectorSelectedRadixSample from "@/components/pages/docs/samples/model-selector/selected-model.radix";
+
 Model selector is a popover that lists AI models and, for models that support it, a reasoning effort level: Low, Medium, High, or a custom set. With a runtime the selection registers with assistant-ui's `ModelContext` system automatically, so it reaches your backend on every request; standalone you hold the value and effort yourself. It comes in two designs: the runtime variant renders a popover of models with reasoning-effort controls, and the static variant, `ModelPicker`, renders a full-page list grouped by family with pricing and capability chips (see [The model-picker design](#the-model-picker-design)).
 
 ## Getting started
@@ -75,39 +79,15 @@ Standalone, the same pieces render with no registration: you own the value, the 
 
 ### Hold the value yourself
 
-```tsx title="app/chat.tsx"
-"use client";
+<PreviewCode
+  file="components/pages/docs/samples/model-selector/selected-model"
+  name="SelectableModel"
+  base={<ModelSelectorSelectedSample />}
+>
+  <ModelSelectorSelectedRadixSample.ModelSelectorSelectedSample />
+</PreviewCode>
 
-import { useState } from "react";
-import {
-  ModelSelectorRoot,
-  ModelSelectorTrigger,
-  ModelSelectorContent,
-} from "@/components/assistant-ui/elements/model-selector";
-
-const MODELS = [
-  { id: "gpt-5.6-luna", name: "GPT-5.6 Luna" },
-  { id: "gpt-5.6-sol", name: "GPT-5.6 Sol", efforts: true },
-];
-
-export function ModelSelect() {
-  const [value, setValue] = useState("gpt-5.6-luna");
-  const [effort, setEffort] = useState<string>();
-
-  return (
-    <ModelSelectorRoot
-      models={MODELS}
-      value={value}
-      onValueChange={setValue}
-      effort={effort}
-      onEffortChange={setEffort}
-    >
-      <ModelSelectorTrigger />
-      <ModelSelectorContent />
-    </ModelSelectorRoot>
-  );
-}
-```
+Open the picker and select a model: the trigger shows the new model once it closes, and the Thinking row follows whichever model declares `efforts`.
 
   </Step>
 </Steps>
