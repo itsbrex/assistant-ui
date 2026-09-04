@@ -3808,6 +3808,7 @@ declare class RemoteThreadListThreadListRuntimeCore extends BaseSubscribable imp
   reloadMainThread(): Promise<void>;
   reload(): Promise<void>;
   get isLoading(): boolean;
+  get loadError(): unknown;
   get isLoadingMore(): boolean;
   get hasMore(): boolean;
   get threadIds(): readonly string[];
@@ -3957,6 +3958,7 @@ type RemoteThreadMetadata = {
 
 type RemoteThreadState = {
   readonly isLoading: boolean;
+  readonly loadError: unknown;
   readonly isLoadingMore: boolean;
   readonly cursor: string | undefined;
   readonly newThreadId: string | undefined;
@@ -4749,6 +4751,7 @@ type ThreadListRuntime = {
 
 type ThreadListRuntimeCore = {
   readonly isLoading: boolean;
+  readonly loadError?: unknown;
   readonly isLoadingMore?: boolean;
   readonly hasMore?: boolean;
   mainThreadId: string;
@@ -4821,6 +4824,7 @@ type ThreadListState = {
   readonly threadIds: readonly string[];
   readonly archivedThreadIds: readonly string[];
   readonly isLoading: boolean;
+  readonly loadError: unknown;
   readonly isLoadingMore: boolean;
   readonly hasMore: boolean;
   readonly threadItems: Readonly<Record<string, Omit<ThreadListItemState$1, "isMain" | "isRunning" | "threadId">>>;
@@ -5328,6 +5332,7 @@ type ThreadsState = {
   readonly mainThreadId: string;
   readonly newThreadId: string | null;
   readonly isLoading: boolean;
+  readonly loadError: unknown;
   readonly isLoadingMore: boolean;
   readonly hasMore: boolean;
   readonly threadIds: readonly string[];
