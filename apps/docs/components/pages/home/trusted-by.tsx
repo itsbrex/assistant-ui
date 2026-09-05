@@ -146,7 +146,7 @@ const LOGOS: Logo[] = [
 const SLOTS = 9;
 export const ALL_SLOTS = Array.from({ length: SLOTS }, (_, index) => index);
 export const MOBILE_SLOTS = [0, 1, 2, 5, 6];
-const HOLD_MIN_MS = 1600;
+export const HOLD_MIN_MS = 1600;
 const HOLD_SPAN_MS = 900;
 const CROSSFADE_MS = 500;
 
@@ -305,7 +305,7 @@ function LogoSlot({
           rel="noopener noreferrer"
           inert={entered}
           className={cn(
-            "absolute inset-0 flex items-center justify-center",
+            "absolute inset-0 mx-auto flex w-full max-w-[9rem] items-center justify-center",
             entered &&
               "animate-out fade-out fill-mode-forwards duration-500 ease-out",
           )}
