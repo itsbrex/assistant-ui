@@ -125,6 +125,56 @@ describe("rewriteLatexBracketDelimiters", () => {
     );
   });
 
+  it("does not close a fenced block on a line with an info string", () => {
+    const fenced = "```\n```js\n\\(x\\)\n```\nafter \\(y\\)";
+    expect(rewriteLatexBracketDelimiters(fenced)).toBe(
+      "```\n```js\n\\(x\\)\n```\nafter $y$",
+    );
+  });
+
+  it("closes a backtick fence opened inside a blockquote", () => {
+    const fenced = "> ```\n> \\(x\\)\n> ```\nafter \\(y\\)";
+    expect(rewriteLatexBracketDelimiters(fenced)).toBe(
+      "> ```\n> \\(x\\)\n> ```\nafter $y$",
+    );
+  });
+
+  it("closes a code span written mid-line with three backticks", () => {
+    expect(rewriteLatexBracketDelimiters("x ```\\(a\\)``b``` \\(y\\)")).toBe(
+      "x ```\\(a\\)``b``` $y$",
+    );
+  });
+
+  it("protects an unclosed fence indented past a list item's content column", () => {
+    const streaming = "1. Step\n   - Sub\n     ```js\n     const a = \\(x\\);";
+    expect(rewriteLatexBracketDelimiters(streaming)).toBe(streaming);
+  });
+
+  it("protects a still-streaming fence quoted under a nested list item", () => {
+    const streaming =
+      "- Setup\n  - Note:\n    > ```js\n    > const a = \\(x\\);";
+    expect(rewriteLatexBracketDelimiters(streaming)).toBe(streaming);
+  });
+
+  it("protects a still-streaming fence opened on a list item's marker line", () => {
+    const streaming = "- ```js\n  const a = \\(x\\);";
+    expect(rewriteLatexBracketDelimiters(streaming)).toBe(streaming);
+  });
+
+  it("closes an indented fence whose body carries a blank line", () => {
+    const fenced =
+      "1. Step\n   - Sub\n     ```js\n     const a = 1;\n\n     const b = 2;\n     ```\n\nafter \\(y\\)";
+    expect(rewriteLatexBracketDelimiters(fenced)).toBe(
+      "1. Step\n   - Sub\n     ```js\n     const a = 1;\n\n     const b = 2;\n     ```\n\nafter $y$",
+    );
+  });
+
+  it("does not open a fence from a run sharing its line with a backtick", () => {
+    expect(
+      rewriteLatexBracketDelimiters("```\\(a\\)```b\n\nafter \\(y\\)"),
+    ).toBe("```\\(a\\)```b\n\nafter $y$");
+  });
+
   it("rewrites prose on the same line as a code span", () => {
     expect(rewriteLatexBracketDelimiters("\\(a\\) `\\(x\\)` \\(b\\)")).toBe(
       "$a$ `\\(x\\)` $b$",
@@ -410,6 +460,76 @@ describe("escapeCurrencyDollars", () => {
   it("accepts a longer closing run for a fenced block", () => {
     expect(escapeCurrencyDollars("```\nconst price = $5;\n````")).toBe(
       "```\nconst price = $5;\n````",
+    );
+  });
+
+  it("does not close a fenced block on a line with an info string", () => {
+    const fenced = "```\n```js\nconst price = $5;\n```\nafter $10";
+    expect(escapeCurrencyDollars(fenced)).toBe(
+      "```\n```js\nconst price = $5;\n```\nafter \\$10",
+    );
+  });
+
+  it("does not rewrite a quoted fence indented past a nested list item", () => {
+    const fenced =
+      "- Setup\n  - Note:\n    > ```js\n    > const price = $5;\n    >\n    > const tax = $2;\n    > ```\n\nafter $10";
+    expect(escapeCurrencyDollars(fenced)).toBe(
+      "- Setup\n  - Note:\n    > ```js\n    > const price = $5;\n    >\n    > const tax = $2;\n    > ```\n\nafter \\$10",
+    );
+  });
+
+  it("does not rewrite a tab-indented quoted fence", () => {
+    const fenced =
+      "\t> ```js\n\t> const price = $5;\n\t>\n\t> const tax = $2;\n\t> ```\n\nafter $10";
+    expect(escapeCurrencyDollars(fenced)).toBe(
+      "\t> ```js\n\t> const price = $5;\n\t>\n\t> const tax = $2;\n\t> ```\n\nafter \\$10",
+    );
+  });
+
+  it("does not rewrite a fence quoted inside a list item", () => {
+    const fenced =
+      "- > ```js\n  > const price = $5;\n\n  > const tax = $2;\n  > ```\n\nafter $10";
+    expect(escapeCurrencyDollars(fenced)).toBe(
+      "- > ```js\n  > const price = $5;\n\n  > const tax = $2;\n  > ```\n\nafter \\$10",
+    );
+  });
+
+  it("does not rewrite a fence opened on a list item's marker line", () => {
+    const fenced =
+      "- ```js\n  const price = $5;\n\n  const tax = $2;\n  ```\n\nafter $10";
+    expect(escapeCurrencyDollars(fenced)).toBe(
+      "- ```js\n  const price = $5;\n\n  const tax = $2;\n  ```\n\nafter \\$10",
+    );
+  });
+
+  it("does not rewrite an indented fence whose body carries a blank line", () => {
+    const fenced =
+      "1. Step\n   - Sub\n     ```js\n     const price = $5;\n\n     const tax = $2;\n     ```\n\nafter $10";
+    expect(escapeCurrencyDollars(fenced)).toBe(
+      "1. Step\n   - Sub\n     ```js\n     const price = $5;\n\n     const tax = $2;\n     ```\n\nafter \\$10",
+    );
+  });
+
+  it("keeps a run left open in prose from swallowing a fence across CRLF", () => {
+    const prose =
+      "use ``` to fence code\r\n\r\n```js\r\nconst price = $5;\r\n```\r\nafter $10";
+    expect(escapeCurrencyDollars(prose)).toBe(
+      "use ``` to fence code\r\n\r\n```js\r\nconst price = $5;\r\n```\r\nafter \\$10",
+    );
+  });
+
+  it("does not let a run left open in prose swallow a later fence", () => {
+    const prose =
+      "use ``` to fence code\n\n```js\nconst price = $5;\n```\nafter $10";
+    expect(escapeCurrencyDollars(prose)).toBe(
+      "use ``` to fence code\n\n```js\nconst price = $5;\n```\nafter \\$10",
+    );
+  });
+
+  it("does not rewrite a fenced block opened inside a blockquote", () => {
+    const fenced = "> ```\n> ```js\n> const price = $5;\n> ```\nafter $10";
+    expect(escapeCurrencyDollars(fenced)).toBe(
+      "> ```\n> ```js\n> const price = $5;\n> ```\nafter \\$10",
     );
   });
 
