@@ -103,6 +103,26 @@ describe("interactiveVocabulary", () => {
     expect(html).toContain('<option value="b">B</option>');
   });
 
+  it("Select ignores malformed options instead of throwing", () => {
+    expect(render({ $type: "Select" })).toBe(
+      '<select data-aui="select"></select>',
+    );
+    expect(render({ $type: "Select", options: "not-an-array" })).toBe(
+      '<select data-aui="select"></select>',
+    );
+    expect(
+      render({
+        $type: "Select",
+        options: [
+          null,
+          { label: "Missing value" },
+          { value: "Missing label" },
+          { label: "A", value: "a" },
+        ],
+      }),
+    ).toBe('<select data-aui="select"><option value="a">A</option></select>');
+  });
+
   it("Input renders a single-line input by default", () => {
     expect(render({ $type: "Input", placeholder: "type here" })).toBe(
       '<input data-aui="input" placeholder="type here"/>',

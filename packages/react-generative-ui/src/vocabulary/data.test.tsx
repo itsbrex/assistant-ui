@@ -32,6 +32,32 @@ describe("dataVocabulary", () => {
     expect(html).toContain("<td>only</td>");
   });
 
+  it("Table ignores malformed collections instead of throwing", () => {
+    expect(
+      render({
+        $type: "Table",
+        columns: "not-an-array",
+        rows: [["kept", null, {}, false], null],
+      }),
+    ).toBe(
+      '<table data-aui="table"><tbody><tr><td>kept</td><td></td><td></td><td>false</td></tr></tbody></table>',
+    );
+
+    expect(render({ $type: "Table", columns: [null], rows: [null] })).toBe(
+      '<table data-aui="table"></table>',
+    );
+
+    expect(
+      render({
+        $type: "Table",
+        columns: [null, { label: "Name" }],
+        rows: "not-an-array",
+      }),
+    ).toBe(
+      '<table data-aui="table"><thead><tr><th data-aui="table-col"></th><th data-aui="table-col">Name</th></tr></thead></table>',
+    );
+  });
+
   it("Markdown renders the value in a div", () => {
     expect(render({ $type: "Markdown", value: "# hi" })).toBe(
       '<div data-aui="markdown"># hi</div>',

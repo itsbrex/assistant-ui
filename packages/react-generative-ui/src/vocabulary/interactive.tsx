@@ -10,8 +10,18 @@ const optionSchema = z.object({
   value: z.string(),
 });
 
+type Option = { label: string; value: string };
+
+const isOption = (option: unknown): option is Option =>
+  option !== null &&
+  typeof option === "object" &&
+  "label" in option &&
+  typeof option.label === "string" &&
+  "value" in option &&
+  typeof option.value === "string";
+
 type RadioGroupRenderProps = {
-  options: { label: string; value: string }[];
+  options: Option[];
   name?: string;
   label?: string;
   defaultValue?: string;
@@ -37,9 +47,7 @@ function RadioGroupRender({
       aria-label={label}
     >
       {safeOptions.map((option, i) =>
-        option &&
-        typeof option.label === "string" &&
-        typeof option.value === "string" ? (
+        isOption(option) ? (
           <label key={i} data-aui="radiogroup-option">
             <input
               type="radio"
@@ -134,11 +142,13 @@ export const interactiveVocabulary = {
             {placeholder}
           </option>
         ) : null}
-        {options.map((o: { label: string; value: string }, i: number) => (
-          <option key={i} value={o.value}>
-            {o.label}
-          </option>
-        ))}
+        {(Array.isArray(options) ? options : []).map((option, i) =>
+          isOption(option) ? (
+            <option key={i} value={option.value}>
+              {option.label}
+            </option>
+          ) : null,
+        )}
         {children}
       </select>
     ),
