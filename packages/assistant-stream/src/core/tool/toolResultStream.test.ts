@@ -342,6 +342,32 @@ describe("unstable_runPendingTools", () => {
     });
   });
 
+  it("lets a synchronously aborting tool settle during the abort grace period", async () => {
+    const abortController = new AbortController();
+    const execute = vi.fn(() => {
+      abortController.abort();
+      return "executed";
+    });
+
+    const settled = await unstable_runPendingTools(
+      createPendingToolMessage("self-aborting-tool"),
+      {
+        tool: {
+          parameters: { type: "object", properties: {} },
+          execute,
+        },
+      },
+      abortController.signal,
+      async () => {},
+    );
+
+    expect(execute).toHaveBeenCalledOnce();
+    expect(settled.parts[0]).toMatchObject({
+      result: "executed",
+      isError: false,
+    });
+  });
+
   it("does not execute a tool cancelled during async validation", async () => {
     const abortController = new AbortController();
     const validation = promiseWithResolvers<{
@@ -376,6 +402,85 @@ describe("unstable_runPendingTools", () => {
       result: "Tool execution was cancelled.",
       isError: true,
     });
+  });
+
+  it("settles cancellation while async validation remains pending", async () => {
+    const abortController = new AbortController();
+    const validation = promiseWithResolvers<{
+      value: Record<string, unknown>;
+    }>();
+    const execute = vi.fn(() => "executed");
+    const pending = unstable_runPendingTools(
+      createPendingToolMessage("pending-validation"),
+      {
+        tool: {
+          parameters: {
+            "~standard": {
+              version: 1,
+              vendor: "test",
+              validate: () => validation.promise,
+            },
+          },
+          execute,
+        },
+      },
+      abortController.signal,
+      async () => {},
+    );
+
+    abortController.abort();
+    const settled = await pending;
+
+    expect(settled.parts[0]).toMatchObject({
+      state: "result",
+      result: "Tool execution was cancelled.",
+      isError: true,
+    });
+
+    validation.resolve({ value: {} });
+    await validation.promise;
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("observes validation rejection after validation cancels the tool", async () => {
+    const abortController = new AbortController();
+    const validation = promiseWithResolvers<{
+      value: Record<string, unknown>;
+    }>();
+    const execute = vi.fn(() => "executed");
+    const pending = unstable_runPendingTools(
+      createPendingToolMessage("self-cancelling-validation"),
+      {
+        tool: {
+          parameters: {
+            "~standard": {
+              version: 1,
+              vendor: "test",
+              validate: () => {
+                abortController.abort();
+                return validation.promise;
+              },
+            },
+          },
+          execute,
+        },
+      },
+      abortController.signal,
+      async () => {},
+    );
+
+    const unhandledRejections = await captureUnhandledRejections(async () => {
+      const settled = await pending;
+      expect(settled.parts[0]).toMatchObject({
+        state: "result",
+        result: "Tool execution was cancelled.",
+        isError: true,
+      });
+      validation.reject(new Error("validation failed after cancellation"));
+    });
+
+    expect(unhandledRejections).toEqual([]);
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it.each(["resolves", "rejects"] as const)(
