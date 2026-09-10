@@ -194,8 +194,10 @@ describe("CloudChatCore", () => {
     controller!.enqueue({ type: "text-start", id: "part-1" });
     controller!.enqueue({ type: "text-delta", id: "part-1", delta: "hi" });
     controller!.close();
-    await stream.getReader().read();
     await new Promise((resolve) => setTimeout(resolve, 0));
+    clock = 150;
+    await stream.pipeTo(new WritableStream());
+    expect(source.locked).toBe(false);
     clock = 180;
     const onFinish = chatOptionsRef.current?.onFinish as (
       event: unknown,
@@ -216,6 +218,104 @@ describe("CloudChatCore", () => {
       "thread-1",
       "assistant-1",
     );
+  });
+
+  it("cancels the transport stream while waiting for the first token", async () => {
+    const cancel = vi.fn();
+    const source = new ReadableStream({ cancel });
+    const sendMessages = vi.fn().mockResolvedValue(source);
+    const core = createCore({
+      baseTransport: { sendMessages, reconnectToStream: vi.fn() },
+    });
+    vi.spyOn(core, "ensureThreadId").mockResolvedValue("thread-1");
+    vi.spyOn(core, "persist").mockResolvedValue(undefined);
+
+    const stream = await core
+      .createTransport("chat-1", registry)
+      .sendMessages({ messages: [] } as never);
+    const reason = new Error("stopped");
+    const cancellation = stream.cancel(reason);
+
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce(), {
+      timeout: 250,
+    });
+    await cancellation;
+    expect(cancel).toHaveBeenCalledWith(reason);
+    expect(source.locked).toBe(false);
+  });
+
+  it("cancels the transport stream after observing the first token", async () => {
+    let controller: ReadableStreamDefaultController | undefined;
+    const cancel = vi.fn();
+    const source = new ReadableStream({
+      start(sourceController) {
+        controller = sourceController;
+      },
+      cancel,
+    });
+    const sendMessages = vi.fn().mockResolvedValue(source);
+    const core = createCore({
+      baseTransport: { sendMessages, reconnectToStream: vi.fn() },
+    });
+    vi.spyOn(core, "ensureThreadId").mockResolvedValue("thread-1");
+    vi.spyOn(core, "persist").mockResolvedValue(undefined);
+
+    const stream = await core
+      .createTransport("chat-1", registry)
+      .sendMessages({ messages: [] } as never);
+    controller!.enqueue({ type: "text-delta", id: "part-1", delta: "hi" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const reason = new Error("stopped");
+    await stream.cancel(reason);
+
+    expect(cancel).toHaveBeenCalledWith(reason);
+    expect(source.locked).toBe(false);
+  });
+
+  it("forwards transport stream errors and releases the source reader", async () => {
+    let controller: ReadableStreamDefaultController | undefined;
+    const source = new ReadableStream({
+      start(sourceController) {
+        controller = sourceController;
+      },
+    });
+    const sendMessages = vi.fn().mockResolvedValue(source);
+    const core = createCore({
+      baseTransport: { sendMessages, reconnectToStream: vi.fn() },
+    });
+    vi.spyOn(core, "ensureThreadId").mockResolvedValue("thread-1");
+    vi.spyOn(core, "persist").mockResolvedValue(undefined);
+
+    const stream = await core
+      .createTransport("chat-1", registry)
+      .sendMessages({ messages: [] } as never);
+    const error = new Error("stream failed");
+    controller!.error(error);
+
+    await expect(stream.getReader().read()).rejects.toBe(error);
+    expect(source.locked).toBe(false);
+  });
+
+  it("allows cancellation after a tokenless source has closed", async () => {
+    const source = new ReadableStream({
+      start(controller) {
+        controller.enqueue({ type: "text-start", id: "part-1" });
+        controller.close();
+      },
+    });
+    const sendMessages = vi.fn().mockResolvedValue(source);
+    const core = createCore({
+      baseTransport: { sendMessages, reconnectToStream: vi.fn() },
+    });
+    vi.spyOn(core, "ensureThreadId").mockResolvedValue("thread-1");
+    vi.spyOn(core, "persist").mockResolvedValue(undefined);
+
+    const stream = await core
+      .createTransport("chat-1", registry)
+      .sendMessages({ messages: [] } as never);
+    await vi.waitFor(() => expect(source.locked).toBe(false));
+
+    await expect(stream.cancel(new Error("stopped"))).resolves.toBeUndefined();
   });
 
   it("reports message_sent for a user submission only", async () => {

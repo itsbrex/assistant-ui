@@ -318,22 +318,73 @@ export class CloudChatCore {
     stream: ReadableStream<UIMessageChunk>,
     timing: ActiveTelemetryTiming,
   ): ReadableStream<UIMessageChunk> {
-    const [chatStream, timingStream] = stream.tee();
-    const reader = timingStream.getReader();
-    const readUntilFirstToken = async () => {
-      while (true) {
+    // Read eagerly until the first token so its timing reflects arrival rather than downstream consumption.
+    const reader = stream.getReader();
+    let observeFirstToken = timing.firstTokenMs === undefined;
+    let cancelled = false;
+    let readerReleased = false;
+    let eagerRead: Promise<void> | undefined;
+
+    const releaseReader = () => {
+      if (readerReleased) return;
+      readerReleased = true;
+      reader.releaseLock();
+    };
+    const forwardNext = async (
+      controller: ReadableStreamDefaultController<UIMessageChunk>,
+    ) => {
+      try {
         const { done, value } = await reader.read();
-        if (done) return;
-        if (value.type === "text-delta" || value.type === "reasoning-delta") {
-          timing.firstTokenMs = Date.now() - timing.startedAt;
-          return;
+        if (cancelled) return false;
+        if (done) {
+          releaseReader();
+          controller.close();
+          return false;
         }
+        if (
+          observeFirstToken &&
+          (value.type === "text-delta" || value.type === "reasoning-delta")
+        ) {
+          timing.firstTokenMs = Date.now() - timing.startedAt;
+          observeFirstToken = false;
+        }
+        controller.enqueue(value);
+        return true;
+      } catch (error) {
+        releaseReader();
+        if (!cancelled) controller.error(error);
+        return false;
       }
     };
-    void readUntilFirstToken()
-      .catch(() => {})
-      .finally(() => reader.cancel().catch(() => {}));
-    return chatStream;
+    const readUntilFirstToken = async (
+      controller: ReadableStreamDefaultController<UIMessageChunk>,
+    ) => {
+      while (observeFirstToken && (await forwardNext(controller))) {}
+    };
+
+    return new ReadableStream<UIMessageChunk>({
+      start(controller) {
+        eagerRead = readUntilFirstToken(controller);
+      },
+      async pull(controller) {
+        if (eagerRead) {
+          await eagerRead;
+          eagerRead = undefined;
+        } else {
+          await forwardNext(controller);
+        }
+      },
+      async cancel(reason) {
+        cancelled = true;
+        try {
+          if (!readerReleased) {
+            await reader.cancel(reason);
+          }
+        } finally {
+          releaseReader();
+        }
+      },
+    });
   }
 
   private handleSyncError(err: unknown): void {
