@@ -7,8 +7,8 @@
   },
   "@assistant-ui/core": {
     ".": {
-      "min": 33252,
-      "gzip": 11134
+      "min": 33927,
+      "gzip": 11407
     },
     "./internal": {
       "min": 125725,
@@ -93,8 +93,8 @@
   },
   "@assistant-ui/react-google-adk": {
     ".": {
-      "min": 34831,
-      "gzip": 10434
+      "min": 35734,
+      "gzip": 10755
     },
     "./server": {
       "min": 6139,
