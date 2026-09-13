@@ -230,6 +230,20 @@ export abstract class BaseThreadRuntimeCore
     notifyEventListeners(subscribers, payload, `Thread runtime "${event}"`);
   }
 
+  protected _notifyToolApprovalAnswered(
+    messageId: string,
+    toolCallId: string,
+    toolName: string,
+    approved: boolean,
+  ) {
+    this._notifyEventSubscribers("toolApprovalAnswered", {
+      messageId,
+      toolCallId,
+      toolName,
+      approved,
+    });
+  }
+
   public submitFeedback({ messageId, type }: SubmitFeedbackOptions) {
     const adapter = this.adapters?.feedback;
     if (!adapter) throw new Error("Feedback adapter not configured");

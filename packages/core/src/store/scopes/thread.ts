@@ -144,6 +144,13 @@ export type ThreadMeta = {
 };
 
 export type ThreadEvents = {
+  "thread.toolApprovalAnswered": {
+    threadId: string;
+    messageId: string;
+    toolCallId: string;
+    toolName: string;
+    approved: boolean;
+  };
   /**
    * A run started on this thread. Also observable as `isRunning` flipping to
    * `true` in thread state.
