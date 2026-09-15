@@ -95,6 +95,11 @@ describe.each([
       );
     });
 
+  it("keeps Close unique to the dialog while the add form is open", async () => {
+    await openAddForm();
+    expect(screen.getAllByRole("button", { name: "Close" })).toHaveLength(1);
+  });
+
   it("moves focus to Name when the add form opens", async () => {
     await openAddForm();
     await waitFor(() =>
@@ -102,7 +107,7 @@ describe.each([
     );
   });
 
-  it.each(["Cancel", "Close"])(
+  it.each(["Cancel", "Close form"])(
     "returns focus to Add server after %s",
     async (name) => {
       const form = await openAddForm();
