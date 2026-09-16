@@ -8,7 +8,16 @@ import {
   iconButtonClassName,
   iconButtonHitSlop,
 } from "@/components/assistant-ui/elements/icon-button";
+import { File } from "@/components/assistant-ui/elements/file";
+import { Image } from "@/components/assistant-ui/elements/image";
 import { MarkdownText } from "@/components/assistant-ui/elements/markdown-text";
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningRoot,
+  ReasoningText,
+  ReasoningTrigger,
+} from "@/components/assistant-ui/elements/reasoning.aui";
 import {
   ShimmerLabel,
   useAnnounce,
@@ -30,6 +39,7 @@ import {
   type TextMessagePartComponent,
   type ThreadMessage,
   type ToolCallMessagePartComponent,
+  groupPartByType,
   useAui,
   useAuiState,
 } from "@assistant-ui/react-native";
@@ -745,17 +755,53 @@ const AssistantMessage: FC = () => {
   const { ToolFallback: CustomToolFallback } = useContext(
     ThreadComponentsContext,
   );
+  const ToolFallbackComponent = CustomToolFallback ?? ToolFallback;
 
   return (
     <MessagePrimitive.Root className="aui-assistant-message-root">
       <View className="aui-assistant-message-content px-2">
-        <MessagePrimitive.Parts
-          components={{
-            Text: MarkdownText,
-            Empty: AssistantIndicator,
-            tools: { Fallback: CustomToolFallback ?? ToolFallback },
+        <MessagePrimitive.GroupedParts
+          groupBy={groupPartByType({
+            reasoning: ["group-chainOfThought", "group-reasoning"],
+            "tool-call": ["group-chainOfThought", "group-tool"],
+            "standalone-tool-call": [],
+          })}
+        >
+          {({ part, children }) => {
+            switch (part.type) {
+              case "group-chainOfThought":
+              case "group-tool":
+                return children;
+              case "group-reasoning": {
+                const streaming = part.status.type === "running";
+                return (
+                  <ReasoningRoot streaming={streaming}>
+                    <ReasoningTrigger active={streaming} />
+                    <ReasoningContent>
+                      <ReasoningText>{children}</ReasoningText>
+                    </ReasoningContent>
+                  </ReasoningRoot>
+                );
+              }
+              case "text":
+                return <MarkdownText {...part} />;
+              case "image":
+                return <Image {...part} />;
+              case "file":
+                return <File {...part} />;
+              case "reasoning":
+                return <Reasoning {...part} />;
+              case "tool-call":
+                return part.toolUI ?? <ToolFallbackComponent {...part} />;
+              case "data":
+                return part.dataRendererUI;
+              case "indicator":
+                return <AssistantIndicator />;
+              default:
+                return null;
+            }
           }}
-        />
+        </MessagePrimitive.GroupedParts>
         <MessageError />
       </View>
       <View className="aui-assistant-message-footer ms-2 min-h-7.5 flex-row items-center pt-1.5">
@@ -801,7 +847,7 @@ const UserMessage: FC = () => (
   <MessagePrimitive.Root className="aui-user-message-root items-end gap-y-2 px-2">
     <UserMessageAttachments />
     <View className="aui-user-message-content bg-muted max-w-[85%] rounded-xl px-4 py-2">
-      <MessagePrimitive.Parts components={{ Text: UserText }} />
+      <MessagePrimitive.Parts components={{ Text: UserText, Image, File }} />
     </View>
     <View className="aui-user-message-footer -me-1 flex-row items-center justify-end">
       <BranchPicker />
