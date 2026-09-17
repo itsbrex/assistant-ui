@@ -522,6 +522,12 @@ export const create = new Command()
   .option("--no-skills", "skip adding assistant-ui agent skills")
   .addOption(
     new Option(
+      "--cwd <cwd>",
+      "the working directory. defaults to the current directory.",
+    ).hideHelp(),
+  )
+  .addOption(
+    new Option(
       "--debug-source-root <path>",
       "copy templates/examples from a local assistant-ui repo root",
     ).hideHelp(),
@@ -575,7 +581,10 @@ export const create = new Command()
     }
 
     // Check directory
-    const absoluteProjectDir = path.resolve(resolvedProjectDirectory);
+    const absoluteProjectDir = path.resolve(
+      opts.cwd ?? process.cwd(),
+      resolvedProjectDirectory,
+    );
     const { display: displayProjectDir, cdCommand } =
       resolveProjectDirectoryGuidance({ absoluteProjectDir });
     try {

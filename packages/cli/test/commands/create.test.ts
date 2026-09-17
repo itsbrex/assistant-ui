@@ -13,6 +13,7 @@ import {
   resolveProjectDirectoryGuidance,
   PROJECT_METADATA,
 } from "../../src/commands/create";
+import { logger } from "../../src/lib/utils/logger";
 
 describe("create command", () => {
   it("exposes --preset option", () => {
@@ -43,6 +44,45 @@ describe("create command", () => {
     expect(debugSourceRootOption).toBeDefined();
     expect(debugSourceRootOption?.hidden).toBe(true);
     expect(create.helpInformation()).not.toContain("--debug-source-root");
+  });
+
+  it("exposes --cwd as a hidden option", () => {
+    const cwdOption = create.options.find((option) => option.long === "--cwd");
+    expect(cwdOption).toBeDefined();
+    expect(cwdOption?.hidden).toBe(true);
+    expect(create.helpInformation()).not.toContain("--cwd");
+  });
+
+  it("resolves the project directory against --cwd", async () => {
+    const cwd = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "aui-create-")),
+    );
+    const target = path.join(cwd, "my-app");
+    fs.writeFileSync(target, "");
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("process.exit");
+    });
+    const errorSpy = vi.spyOn(logger, "error").mockImplementation(() => {});
+
+    try {
+      await expect(
+        create.parseAsync(
+          ["my-app", "--cwd", cwd, "--debug-source-root", cwd],
+          { from: "user" },
+        ),
+      ).rejects.toThrow("process.exit");
+
+      const { display } = resolveProjectDirectoryGuidance({
+        absoluteProjectDir: target,
+      });
+      expect(errorSpy).toHaveBeenCalledWith(
+        `${display} already exists and is not a directory`,
+      );
+    } finally {
+      exitSpy.mockRestore();
+      errorSpy.mockRestore();
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });
 
