@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { describe, it, expect } from "vitest";
 import {
   collectFormValues,
@@ -120,6 +122,26 @@ describe("collectFormValues", () => {
         el({ name: "size", type: "radio", value: "md", checked: false }),
       ]),
     ).toEqual({ size: undefined });
+  });
+
+  it("skips controls disabled by a fieldset while preserving its first legend", () => {
+    const form = document.createElement("form");
+    form.innerHTML = `
+      <fieldset disabled>
+        <legend><input name="legend" value="kept" /></legend>
+        <input name="blocked" value="old" />
+      </fieldset>
+      <input name="enabled" value="yes" />
+    `;
+    const blocked = form.elements.namedItem("blocked") as HTMLInputElement;
+
+    expect(blocked.disabled).toBe(false);
+
+    expect(
+      collectFormValues(
+        form.elements as unknown as ArrayLike<FormControlElementLike>,
+      ),
+    ).toEqual({ legend: "kept", enabled: "yes" });
   });
 
   it("returns an empty object for no elements", () => {
