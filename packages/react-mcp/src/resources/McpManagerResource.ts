@@ -116,6 +116,20 @@ const holdCustomServerPersistence = (
   return release;
 };
 
+const deduplicateCustomServers = (records: MCPCustomServerRecord[]) => {
+  const seen = new Set<string>();
+  return records.filter((record) => {
+    if (seen.has(record.id)) {
+      console.error(
+        `[assistant-ui/react-mcp] ignored duplicate custom server id "${record.id}" loaded from storage`,
+      );
+      return false;
+    }
+    seen.add(record.id);
+    return true;
+  });
+};
+
 type McpCustomServersResourceProps = {
   storage: MCPStorage;
   scopeKey: string;
@@ -151,7 +165,8 @@ const useMcpCustomServersResource = ({
 
     let records: Awaited<ReturnType<typeof storage.loadCustomServers>>;
     try {
-      records = await storage.loadCustomServers();
+      const loadedRecords = await storage.loadCustomServers();
+      records = deduplicateCustomServers(loadedRecords);
     } catch (error) {
       if (!signal.cancelled) {
         reportCustomStorageFailure("load", error);
