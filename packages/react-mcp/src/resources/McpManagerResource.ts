@@ -151,6 +151,7 @@ const useMcpCustomServersResource = ({
     "pending",
   );
   const hasPendingMutationRef = useRef(false);
+  const [removedBeforeHydration] = useState(() => new Set<string>());
   const reportedBlockedPersistenceRef = useRef(false);
 
   const hydrate = useEffectEvent(async (signal: { cancelled: boolean }) => {
@@ -179,16 +180,21 @@ const useMcpCustomServersResource = ({
       }
       return;
     }
-
     // Merge rather than replace so any addCustomServer calls that
     // happened before hydration resolved aren't silently overwritten.
     // Persisted order wins; pre-hydration locals append.
     const hadPendingMutation = hasPendingMutationRef.current;
+    const hydratedRecords = records.filter(
+      (record) => !removedBeforeHydration.has(record.id),
+    );
     const mergedRecords = (() => {
       const prev = customServersRef.current;
-      if (prev.length === 0) return records;
-      const persistedIds = new Set(records.map((r) => r.id));
-      return [...records, ...prev.filter((r) => !persistedIds.has(r.id))];
+      if (prev.length === 0) return hydratedRecords;
+      const persistedIds = new Set(hydratedRecords.map((r) => r.id));
+      return [
+        ...hydratedRecords,
+        ...prev.filter((r) => !persistedIds.has(r.id)),
+      ];
     })();
     customServersRef.current = mergedRecords;
     hydrationStateRef.current = "succeeded";
@@ -247,7 +253,22 @@ const useMcpCustomServersResource = ({
     [persistenceQueues, scopeKey, storage],
   );
 
-  return { customServers, isHydrated, updateCustomServers };
+  const removeCustomServer = useCallback(
+    (id: string) => {
+      if (hydrationStateRef.current === "pending") {
+        removedBeforeHydration.add(id);
+      }
+      updateCustomServers((prev) => prev.filter((record) => record.id !== id));
+    },
+    [removedBeforeHydration, updateCustomServers],
+  );
+
+  return {
+    customServers,
+    isHydrated,
+    updateCustomServers,
+    removeCustomServer,
+  };
 };
 
 const McpCustomServersResource = resource(useMcpCustomServersResource);
@@ -267,16 +288,17 @@ const useMcpManagerResource = (
   );
   const storageScopeKey =
     storage.scopeId === undefined ? "unscoped" : `scoped:${storage.scopeId}`;
-  const { customServers, isHydrated, updateCustomServers } = useResource(
-    withKey(
-      storageScopeKey,
-      McpCustomServersResource({
-        storage,
-        scopeKey: storageScopeKey,
-        persistenceQueues,
-      }),
-    ),
-  );
+  const { customServers, isHydrated, updateCustomServers, removeCustomServer } =
+    useResource(
+      withKey(
+        storageScopeKey,
+        McpCustomServersResource({
+          storage,
+          scopeKey: storageScopeKey,
+          persistenceQueues,
+        }),
+      ),
+    );
 
   const serverElements = useMemo(() => {
     assertUniqueServerIds([
@@ -328,9 +350,7 @@ const useMcpManagerResource = (
                 ? { elicitation: s.elicitation }
                 : {}),
               onRemove: async () => {
-                updateCustomServers((prev) =>
-                  prev.filter((record) => record.id !== s.id),
-                );
+                removeCustomServer(s.id);
               },
             },
             () =>
@@ -347,7 +367,7 @@ const useMcpManagerResource = (
     redirectUri,
     autoConnect,
     connectionTimeout,
-    updateCustomServers,
+    removeCustomServer,
     persistenceQueues,
     storageScopeKey,
   ]);
@@ -465,9 +485,7 @@ const useMcpManagerResource = (
         );
         try {
           await clearOAuthProviderAuthState(storage, id);
-          updateCustomServers((prev) =>
-            prev.filter((record) => record.id !== id),
-          );
+          removeCustomServer(id);
         } catch (error) {
           releasePersistence();
           throw error;
