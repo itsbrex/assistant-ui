@@ -1,5 +1,21 @@
 # @assistant-ui/react
 
+## 0.15.22
+
+### Patch Changes
+
+- [#7731](https://github.com/assistant-ui/assistant-ui/pull/7731) [`455e2ac`](https://github.com/assistant-ui/assistant-ui/commit/455e2ac67bbcb7329d3f8367daf409eac5bc3a27) - fix: lock the current scroll container after reasoning content or its ancestor chain changes ([@Kinfe123](https://github.com/Kinfe123))
+
+- [#7730](https://github.com/assistant-ui/assistant-ui/pull/7730) [`af49e91`](https://github.com/assistant-ui/assistant-ui/commit/af49e91648334569ac36a94f602a66b6dbe031dc) - fix: prevent stale message hover updates after unmount ([@Kinfe123](https://github.com/Kinfe123))
+
+- [#7737](https://github.com/assistant-ui/assistant-ui/pull/7737) [`6cc0bee`](https://github.com/assistant-ui/assistant-ui/commit/6cc0bee320a1eccc855b4140249b8ac552010472) - fix: scope selection toolbars to their owning thread ([@Kinfe123](https://github.com/Kinfe123))
+
+- [#7520](https://github.com/assistant-ui/assistant-ui/pull/7520) [`2171a8e`](https://github.com/assistant-ui/assistant-ui/commit/2171a8e06b8ca739a98eba927ab8b27175dd7be6) - fix(react): attach the ExportMarkdown download anchor to the document so Firefox starts the download ([@Kinfe123](https://github.com/Kinfe123))
+
+- [#7716](https://github.com/assistant-ui/assistant-ui/pull/7716) [`3f4369b`](https://github.com/assistant-ui/assistant-ui/commit/3f4369bca08b7cd948f1b2671d424bfc1ccdeaca) - fix: respond to touch and programmatic text selection changes ([@Kinfe123](https://github.com/Kinfe123))
+- Updated dependencies [[`eb034f6`](https://github.com/assistant-ui/assistant-ui/commit/eb034f6251d29430c0bc1a572f265bb4fadd991a), [`777df32`](https://github.com/assistant-ui/assistant-ui/commit/777df32e87179b4a7b993a823fca6ded8aa95e15), [`534e11f`](https://github.com/assistant-ui/assistant-ui/commit/534e11fa22102cd7c1c94ff6850742796cd37fa1)]:
+  - @assistant-ui/core@0.3.21
+
 ## 0.15.21
 
 ### Patch Changes

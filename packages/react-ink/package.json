@@ -40,7 +40,7 @@
     "benchmark": "tsx benchmarks/run.ts"
   },
   "dependencies": {
-    "@assistant-ui/core": "^0.3.20",
+    "@assistant-ui/core": "^0.3.21",
     "@assistant-ui/store": "^0.3.14",
     "@assistant-ui/tap": "^0.9.18",
     "assistant-cloud": "workspace:^",
