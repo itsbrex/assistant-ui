@@ -3736,7 +3736,7 @@ importers:
         specifier: ^4.0.104
         version: 4.0.104(react@19.3.0)(zod@4.6.5)
       '@assistant-ui/core':
-        specifier: ^0.3.20
+        specifier: ^0.3.21
         version: link:../core
       '@assistant-ui/store':
         specifier: ^0.3.14
@@ -3979,7 +3979,7 @@ importers:
   packages/eve:
     dependencies:
       '@assistant-ui/core':
-        specifier: ^0.3.20
+        specifier: ^0.3.21
         version: link:../core
       '@assistant-ui/store':
         specifier: ^0.3.14
@@ -4122,7 +4122,7 @@ importers:
   packages/react:
     dependencies:
       '@assistant-ui/core':
-        specifier: ^0.3.20
+        specifier: ^0.3.21
         version: link:../core
       '@assistant-ui/store':
         specifier: ^0.3.14
@@ -4189,7 +4189,7 @@ importers:
   packages/react-a2a:
     dependencies:
       '@assistant-ui/core':
-        specifier: ^0.3.20
+        specifier: ^0.3.21
         version: link:../core
       '@assistant-ui/store':
         specifier: ^0.3.14
@@ -4229,7 +4229,7 @@ importers:
         specifier: ^0.0.59
         version: 0.0.59
       '@assistant-ui/core':
-        specifier: ^0.3.20
+        specifier: ^0.3.21
         version: link:../core
       '@assistant-ui/react-generative-ui':
         specifier: ^0.0.19
@@ -4291,7 +4291,7 @@ importers:
         specifier: ^4.0.14
         version: 4.0.14
       '@assistant-ui/core':
-        specifier: ^0.3.20
+        specifier: ^0.3.21
         version: link:../core
       assistant-cloud:
         specifier: '*'
@@ -4402,7 +4402,7 @@ importers:
   packages/react-google-adk:
     dependencies:
       '@assistant-ui/core':
-        specifier: ^0.3.20
+        specifier: ^0.3.21
         version: link:../core
       '@assistant-ui/store':
         specifier: ^0.3.14
@@ -4442,7 +4442,7 @@ importers:
   packages/react-hook-form:
     dependencies:
       '@assistant-ui/core':
-        specifier: ^0.3.20
+        specifier: ^0.3.21
         version: link:../core
       '@assistant-ui/store':
         specifier: ^0.3.14
@@ -4479,7 +4479,7 @@ importers:
   packages/react-ink:
     dependencies:
       '@assistant-ui/core':
-        specifier: ^0.3.20
+        specifier: ^0.3.21
         version: link:../core
       '@assistant-ui/store':
         specifier: ^0.3.14
@@ -4537,7 +4537,7 @@ importers:
   packages/react-ink-markdown:
     dependencies:
       '@assistant-ui/core':
-        specifier: ^0.3.20
+        specifier: ^0.3.21
         version: link:../core
       '@assistant-ui/store':
         specifier: ^0.3.14
@@ -4577,7 +4577,7 @@ importers:
   packages/react-langchain:
     dependencies:
       '@assistant-ui/core':
-        specifier: ^0.3.20
+        specifier: ^0.3.21
         version: link:../core
       '@assistant-ui/store':
         specifier: ^0.3.14
@@ -4620,7 +4620,7 @@ importers:
   packages/react-langgraph:
     dependencies:
       '@assistant-ui/core':
-        specifier: ^0.3.20
+        specifier: ^0.3.21
         version: link:../core
       '@assistant-ui/react-langchain':
         specifier: ^0.0.32
@@ -4792,7 +4792,7 @@ importers:
   packages/react-native:
     dependencies:
       '@assistant-ui/core':
-        specifier: ^0.3.20
+        specifier: ^0.3.21
         version: link:../core
       '@assistant-ui/store':
         specifier: ^0.3.14
@@ -4872,7 +4872,7 @@ importers:
   packages/react-opencode:
     dependencies:
       '@assistant-ui/core':
-        specifier: ^0.3.20
+        specifier: ^0.3.21
         version: link:../core
       '@assistant-ui/store':
         specifier: ^0.3.14
@@ -4912,7 +4912,7 @@ importers:
   packages/react-pi:
     dependencies:
       '@assistant-ui/core':
-        specifier: ^0.3.20
+        specifier: ^0.3.21
         version: link:../core
       '@assistant-ui/store':
         specifier: ^0.3.14
@@ -5085,7 +5085,7 @@ importers:
   packages/svelte:
     dependencies:
       '@assistant-ui/core':
-        specifier: ^0.3.20
+        specifier: ^0.3.21
         version: link:../core
       '@assistant-ui/store':
         specifier: ^0.3.14
@@ -5364,7 +5364,7 @@ importers:
   packages/vue:
     dependencies:
       '@assistant-ui/core':
-        specifier: ^0.3.20
+        specifier: ^0.3.21
         version: link:../core
       '@assistant-ui/store':
         specifier: ^0.3.14
