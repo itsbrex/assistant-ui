@@ -1003,7 +1003,7 @@ declare abstract class BaseThreadRuntimeCore extends BaseSubscribable implements
   protected _voiceGeneration: number;
   protected _markVoiceMessagesDirty(): void;
   protected _getBaseMessages(): readonly ThreadMessage[];
-  protected _commitVoiceMessage(_message: ThreadMessage): void;
+  protected _commitVoiceMessage(_message: ThreadMessage): void | Promise<void>;
   get messages(): readonly ThreadMessage[];
   get state(): string | number | boolean | ReadonlyJSONObject | ReadonlyJSONArray | null;
   readonly composer: DefaultThreadComposerRuntimeCore;
@@ -1034,6 +1034,7 @@ declare abstract class BaseThreadRuntimeCore extends BaseSubscribable implements
   protected _onVoiceDisconnected(): void;
   protected _isRunActive(): boolean;
   connectVoice(): void;
+  protected _appendToVoiceSession(message: AppendMessage): Promise<void>;
   disconnectVoice(): void;
   muteVoice(): void;
   unmuteVoice(): void;
@@ -2546,7 +2547,7 @@ declare class LocalThreadRuntimeCore extends BaseThreadRuntimeCore implements Th
   __internal_setOptions(options: LocalRuntimeOptionsBase): void;
   __internal_load(): Promise<void>;
   append(message: AppendMessage): Promise<void>;
-  protected _commitVoiceMessage(message: ThreadMessage): void;
+  protected _commitVoiceMessage(message: ThreadMessage): Promise<void> | undefined;
   protected _onVoiceConnected(): void;
   protected _onVoiceDisconnected(): void;
   getQueueItems(): readonly QueueItemState[];
@@ -3584,6 +3585,7 @@ declare namespace RealtimeVoiceAdapter {
     disconnect: () => void;
     mute: () => void;
     unmute: () => void;
+    sendText?: ((text: string) => void | Promise<void>) | undefined;
     onStatusChange: (callback: (status: Status) => void) => Unsubscribe$1;
     onTranscript: (callback: (transcript: TranscriptItem) => void) => Unsubscribe$1;
     onModeChange: (callback: (mode: Mode) => void) => Unsubscribe$1;
@@ -6054,6 +6056,7 @@ type VoiceSessionControls = {
   disconnect: () => void;
   mute: () => void;
   unmute: () => void;
+  sendText?: ((text: string) => void | Promise<void>) | undefined;
 };
 
 type VoiceSessionHelpers = {
@@ -6069,6 +6072,7 @@ type VoiceSessionState = {
   readonly status: RealtimeVoiceAdapter.Status;
   readonly isMuted: boolean;
   readonly mode: RealtimeVoiceAdapter.Mode;
+  readonly canSendText: boolean;
 };
 
 declare class WebSpeechDictationAdapter implements DictationAdapter {
