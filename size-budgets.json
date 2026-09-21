@@ -15,8 +15,8 @@
       "gzip": 34508
     },
     "./react": {
-      "min": 310847,
-      "gzip": 87110
+      "min": 310911,
+      "gzip": 87114
     },
     "./store": {
       "min": 102647,
@@ -269,12 +269,12 @@
   },
   "assistant-stream": {
     ".": {
-      "min": 60833,
-      "gzip": 16989
+      "min": 60942,
+      "gzip": 17000
     },
     "./resumable": {
-      "min": 17686,
-      "gzip": 5917
+      "min": 17746,
+      "gzip": 5918
     },
     "./resumable/ioredis": {
       "min": 7945,
