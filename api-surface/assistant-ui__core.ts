@@ -1018,6 +1018,7 @@ declare abstract class BaseThreadRuntimeCore extends BaseSubscribable implements
   protected _markVoiceMessagesDirty(): void;
   protected _getBaseMessages(): readonly ThreadMessage[];
   protected _commitVoiceMessage(_message: ThreadMessage): void | Promise<void>;
+  protected _dropVoiceMessage(messageId: string, notify: boolean): void;
   get messages(): readonly ThreadMessage[];
   get state(): string | number | boolean | ReadonlyJSONObject | ReadonlyJSONArray | null;
   readonly composer: DefaultThreadComposerRuntimeCore;
@@ -1047,6 +1048,7 @@ declare abstract class BaseThreadRuntimeCore extends BaseSubscribable implements
   protected _onVoiceConnected(): void;
   protected _onVoiceDisconnected(): void;
   protected _isRunActive(): boolean;
+  protected _getVoiceCommitBarrier(): Promise<void> | undefined;
   connectVoice(): void;
   protected _appendToVoiceSession(message: AppendMessage): Promise<void>;
   disconnectVoice(): void;
@@ -2020,7 +2022,7 @@ declare class ExternalStoreThreadRuntimeCore extends BaseThreadRuntimeCore imple
   __internal_setAdapter(store: ExternalStoreAdapter<any>): void;
   switchToBranch(branchId: string): void;
   append(rawMessage: AppendMessage): Promise<void>;
-  protected _commitVoiceMessage(message: ThreadMessage): void;
+  protected _commitVoiceMessage(message: ThreadMessage): void | Promise<void>;
   deleteMessage(messageId: string): Promise<void>;
   getQueueItems(): readonly QueueItemState[];
   getSteerQueueItems(): readonly QueueItemState[];
@@ -2562,7 +2564,7 @@ declare class LocalThreadRuntimeCore extends BaseThreadRuntimeCore implements Th
   __internal_setOptions(options: LocalRuntimeOptionsBase): void;
   __internal_load(): Promise<void>;
   append(message: AppendMessage): Promise<void>;
-  protected _commitVoiceMessage(message: ThreadMessage): Promise<void> | undefined;
+  protected _commitVoiceMessage(message: ThreadMessage): void | Promise<void>;
   protected _onVoiceConnected(): void;
   protected _onVoiceDisconnected(): void;
   getQueueItems(): readonly QueueItemState[];

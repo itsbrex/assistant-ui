@@ -376,21 +376,32 @@ export class LocalThreadRuntimeCore
     return this._runAppend(message);
   }
 
-  protected override _commitVoiceMessage(message: ThreadMessage) {
-    const parentId = this.repository.headId;
-    this.repository.addOrUpdateMessage(parentId, message);
-    this.repository.resetHead(message.id);
-    const historyWrite = this._options.adapters.history?.append({
-      parentId,
-      message,
-    });
-    void historyWrite?.catch(() => {});
-    const index = this._voiceMessages.findIndex(
-      (voiceMessage) => voiceMessage.id === message.id,
-    );
-    if (index !== -1) this._voiceMessages.splice(index, 1);
-    this._markVoiceMessagesDirty();
-    return historyWrite;
+  protected override _commitVoiceMessage(
+    message: ThreadMessage,
+  ): void | Promise<void> {
+    const generation = captureThreadRuntimeGeneration(this);
+    const commit = (notify: boolean) => {
+      if (!isThreadRuntimeGenerationCurrent(this, generation)) {
+        this._dropVoiceMessage(message.id, notify);
+        return;
+      }
+      const parentId = this.repository.headId;
+      this.repository.addOrUpdateMessage(parentId, message);
+      this.repository.resetHead(message.id);
+      const historyWrite = this._options.adapters.history?.append({
+        parentId,
+        message,
+      });
+      void historyWrite?.catch(() => {});
+      // The write lands whether or not the session still carries the message,
+      // so the notification cannot ride on removing it: hanging up mid load
+      // clears the side list before the barrier resolves.
+      this._dropVoiceMessage(message.id, false);
+      if (notify) this._notifySubscribers();
+      return historyWrite;
+    };
+    const barrier = this._getVoiceCommitBarrier();
+    return barrier ? barrier.then(() => commit(true)) : commit(false);
   }
 
   protected override _onVoiceConnected(): void {

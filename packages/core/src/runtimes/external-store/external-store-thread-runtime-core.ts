@@ -723,8 +723,28 @@ export class ExternalStoreThreadRuntimeCore
     }
   }
 
-  protected override _commitVoiceMessage(message: ThreadMessage): void {
-    this._store.onVoiceTranscript?.(message);
+  protected override _commitVoiceMessage(
+    message: ThreadMessage,
+  ): void | Promise<void> {
+    const barrier = this._getVoiceCommitBarrier();
+    if (!barrier) {
+      this._store.onVoiceTranscript?.(message);
+      return;
+    }
+    // A React host recreates its callbacks on the render that ends the load,
+    // so the delivery reads the adapter current then rather than the callback
+    // that produced the message. The repository is the one conversation
+    // identity that survives those renders and moves when a host routes
+    // another conversation through this runtime; a host that swaps only its
+    // messages is indistinguishable from a load finishing.
+    const repository = this.repository;
+    return barrier.then(() => {
+      if (this.repository !== repository) {
+        this._dropVoiceMessage(message.id, true);
+        return;
+      }
+      this._store.onVoiceTranscript?.(message);
+    });
   }
 
   public async deleteMessage(messageId: string): Promise<void> {
