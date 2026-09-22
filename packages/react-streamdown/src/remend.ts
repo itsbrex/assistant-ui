@@ -24,31 +24,6 @@ function hasBacktick(text: string, from: number, to: number): boolean {
   return false;
 }
 
-function backtickRun(text: string, from: number, to: number): number {
-  let end = from;
-  while (end < to && text.charCodeAt(end) === BACKTICK) end += 1;
-  return end;
-}
-
-function closeCodeSpan(
-  text: string,
-  from: number,
-  lineEnd: number,
-  length: number,
-): number {
-  let s = from;
-  while (s < lineEnd) {
-    if (text.charCodeAt(s) === BACKTICK) {
-      const end = backtickRun(text, s, lineEnd);
-      if (end - s === length) return end;
-      s = end;
-    } else {
-      s += 1;
-    }
-  }
-  return -1;
-}
-
 function isEscaped(text: string, at: number): boolean {
   let backslashes = 0;
   for (let i = at - 1; i >= 0 && text.charCodeAt(i) === BACKSLASH; i -= 1) {
@@ -105,7 +80,7 @@ type BlockScan = {
 /**
  * `boundary` is the start of the last block outside open code fences and `$$` math, `protectedRanges` holds the closed fences and `$$` blocks as flat start/end pairs, and `openStart` is the start of the fence or `$$` block still open at the end, or -1. A range starts at a line start because remend drops a trailing space from its input, so a cut inside a line would lose one.
  *
- * A fence opens at any indentation, since a marker indented four or more columns is either a fence nested in a list item or an indented code block. It closes on a marker in its own blockquote container, as `fenceEnd` in preprocess reads them, and unlike there only when the closer is indented at most three characters past the opener, counting a tab as one, so a deeper marker stays body as CommonMark reads it. A fence or `$$` block also opens after the list markers of its line, and then ends with that list item at the first line indented fewer columns than the item's content, with a tab stop every four columns as CommonMark sets them. Backtick spans stay within their paragraph, so a `$$` inside inline code never toggles math. A bare `>` line is blank inside a blockquote but opens a new block after a blank line.
+ * A fence opens at any indentation, since a marker indented four or more columns is either a fence nested in a list item or an indented code block. It closes on a marker in its own blockquote container, as `fenceEnd` in preprocess reads them, and unlike there only when the closer is indented at most three characters past the opener, counting a tab as one, so a deeper marker stays body as CommonMark reads it. A fence or `$$` block also opens after the list markers of its line, and then ends with that list item at the first line indented fewer columns than the item's content, with a tab stop every four columns as CommonMark sets them. A `$$` block opens only where `$$` starts the content of a line, the one place remark-math reads display math, and closes at the next unescaped `$$`; any other `$$` stays in the prose. A bare `>` line is blank inside a blockquote but opens a new block after a blank line.
  */
 function scanBlocks(text: string): BlockScan {
   const n = text.length;
@@ -116,9 +91,8 @@ function scanBlocks(text: string): BlockScan {
   let fenceIndent = 0;
   let fenceQuoted = false;
   let inMath = false;
-  let mathStart = -1;
+  let mathStart = 0;
   let itemIndent = 0;
-  let spanRun = 0;
   let boundary = 0;
   let pending = -1;
   const protectedRanges: number[] = [];
@@ -180,7 +154,6 @@ function scanBlocks(text: string): BlockScan {
         (inFence || blockFirst === TILDE || !hasBacktick(text, run, lineEnd))
       ) {
         marker = true;
-        spanRun = 0;
         if (!inFence) {
           inFence = true;
           fenceChar = blockFirst;
@@ -203,43 +176,25 @@ function scanBlocks(text: string): BlockScan {
     }
 
     if (!inFence && !marker) {
-      let s = lineStart;
-      if (spanRun !== 0) {
-        if (
-          first === -1 ||
-          (blockFirst === DOLLAR && text.charCodeAt(blockStart + 1) === DOLLAR)
-        ) {
-          spanRun = 0;
-        } else {
-          const end = closeCodeSpan(text, lineStart, lineEnd, spanRun);
-          if (end === -1) {
-            s = lineEnd;
-          } else {
-            s = end;
-            spanRun = 0;
-          }
-        }
+      let s = i;
+      if (
+        !inMath &&
+        blockFirst === DOLLAR &&
+        text.charCodeAt(blockStart + 1) === DOLLAR
+      ) {
+        mathStart = lineStart;
+        itemIndent = blockItemIndent;
+        inMath = true;
+        s = blockStart + 2;
       }
-      while (s < lineEnd - 1) {
-        const c = text.charCodeAt(s);
-        if (c === BACKTICK && !inMath && !isEscaped(text, s)) {
-          const open = backtickRun(text, s, lineEnd);
-          const end = closeCodeSpan(text, open, lineEnd, open - s);
-          if (end === -1) {
-            spanRun = open - s;
-            s = lineEnd;
-          } else {
-            s = end;
-          }
-        } else if (c === DOLLAR && text.charCodeAt(s + 1) === DOLLAR) {
+      while (inMath && s < lineEnd - 1) {
+        if (
+          text.charCodeAt(s) === DOLLAR &&
+          text.charCodeAt(s + 1) === DOLLAR
+        ) {
           if (!isEscaped(text, s)) {
-            if (inMath) {
-              if (mathStart !== -1) protectedRanges.push(mathStart, s + 2);
-            } else {
-              mathStart = s === blockStart ? lineStart : -1;
-              itemIndent = mathStart === -1 ? 0 : blockItemIndent;
-            }
-            inMath = !inMath;
+            protectedRanges.push(mathStart, s + 2);
+            inMath = false;
           }
           s += 2;
         } else {
@@ -259,9 +214,8 @@ function scanBlocks(text: string): BlockScan {
     lineStart = lineEnd + 1;
   }
 
-  const openMath = inMath && mathStart !== -1;
-  const openStart = openMath ? mathStart : inFence && !inMath ? fenceStart : -1;
-  return { boundary, protectedRanges, openStart, openMath };
+  const openStart = inMath ? mathStart : inFence ? fenceStart : -1;
+  return { boundary, protectedRanges, openStart, openMath: inMath };
 }
 
 /**
