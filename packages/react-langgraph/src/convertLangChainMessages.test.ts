@@ -600,7 +600,7 @@ describe("convertLangChainMessages metadata", () => {
               '"filters":{"region":"us","sector":"tech"}',
           },
         ],
-      },
+      } as unknown as LangChainMessage,
       metadata,
     );
 
@@ -723,6 +723,88 @@ describe("convertLangChainMessages metadata", () => {
     expect(secondToolCallPart).toMatchObject({
       argsText: '{"kind":"click","target":{"x":10,"y":20}}',
     });
+  });
+
+  it("synthesizes a computer_call id when call_id is empty", () => {
+    const result = convertLangChainMessages({
+      type: "ai",
+      id: "ai-1",
+      content: [
+        {
+          type: "computer_call",
+          call_id: "",
+          id: "computer-1",
+          action: { kind: "click" },
+          pending_safety_checks: [],
+          index: 0,
+        },
+      ],
+    });
+
+    if (!("content" in result)) {
+      throw new Error("Expected assistant message content");
+    }
+
+    expect(
+      result.content.find((part) => part.type === "tool-call"),
+    ).toMatchObject({
+      type: "tool-call",
+      toolCallId: "computer-1",
+      toolName: "computer_call",
+    });
+  });
+
+  it("keeps missing computer_call ids and argument caches distinct per block", () => {
+    const metadata = {
+      toolArgsKeyOrderCache: new Map<string, Map<string, string[]>>(),
+    };
+    const convert = (actions: readonly Record<string, unknown>[]) =>
+      convertLangChainMessages(
+        {
+          type: "ai",
+          id: "ai-1",
+          content: actions.map((action, index) => ({
+            type: "computer_call",
+            ...(index === 0 ? { call_id: "" } : {}),
+            id: index === 0 ? null : "stable-computer",
+            action,
+            pending_safety_checks: [],
+            index,
+          })),
+        } as unknown as LangChainMessage,
+        metadata,
+      );
+
+    const first = convert([
+      { kind: "click", target: { x: 1, y: 2 } },
+      { kind: "type", target: { x: 3, y: 4 } },
+    ]);
+
+    if (!("content" in first)) {
+      throw new Error("Expected assistant message content");
+    }
+
+    expect(first.content).toMatchObject([
+      {
+        type: "tool-call",
+        toolCallId: "lc-toolcall-ai-1-computer-0",
+        argsText: '{"kind":"click","target":{"x":1,"y":2}}',
+      },
+      {
+        type: "tool-call",
+        toolCallId: "stable-computer",
+        argsText: '{"kind":"type","target":{"x":3,"y":4}}',
+      },
+    ]);
+
+    const second = convert([
+      { target: { y: 2, x: 1 }, kind: "click" },
+      { target: { y: 4, x: 3 }, kind: "type" },
+    ]);
+    if (!("content" in second)) {
+      throw new Error("Expected assistant message content");
+    }
+    expect(second.content).toMatchObject(first.content);
   });
 });
 
