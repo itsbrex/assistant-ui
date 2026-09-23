@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { BaseSubscribable } from "../../subscribable/subscribable";
+import type { ThreadMessage } from "../../types/message";
 import { ReadonlyThreadRuntimeCore } from "../readonly/ReadonlyThreadRuntimeCore";
 import { EMPTY_THREAD_CORE } from "../remote-thread-list/empty-thread-core";
 
@@ -143,6 +144,39 @@ describe.each(cores)("%s shared inert surface", (_name, makeCore, error) => {
 });
 
 describe("readonly thread mutations", () => {
+  it("rejects interaction recording on empty threads and resolves on readonly threads", async () => {
+    await expect(
+      EMPTY_THREAD_CORE.unstable_recordToolInteraction!({
+        messageId: "message-1",
+        toolCallId: "call-1",
+        interaction: { type: "action", payload: {}, occurredAt: 0 },
+      }),
+    ).rejects.toThrow(EMPTY_ERROR);
+
+    const readonlyThread = new ReadonlyThreadRuntimeCore();
+    const messages: readonly ThreadMessage[] = [
+      {
+        id: "message-1",
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "hello" }],
+        attachments: [],
+        createdAt: new Date(0),
+        status: { type: "complete" as const, reason: "stop" as const },
+        metadata: { custom: {} },
+      },
+    ];
+    readonlyThread.setMessages(messages);
+
+    await expect(
+      readonlyThread.unstable_recordToolInteraction!({
+        messageId: "message-1",
+        toolCallId: "call-1",
+        interaction: { type: "action", payload: {}, occurredAt: 0 },
+      }),
+    ).resolves.toBeUndefined();
+    expect(readonlyThread.messages).toBe(messages);
+  });
+
   it.each(
     THREAD_MUTATION_METHODS.filter(
       (method) => method !== "exportExternalState",

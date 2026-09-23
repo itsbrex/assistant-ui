@@ -7,24 +7,24 @@
   },
   "@assistant-ui/core": {
     ".": {
-      "min": 36395,
-      "gzip": 12131
+      "min": 37568,
+      "gzip": 12551
     },
     "./internal": {
-      "min": 144071,
-      "gzip": 36718
+      "min": 148744,
+      "gzip": 37825
     },
     "./react": {
-      "min": 326219,
-      "gzip": 91035
+      "min": 331693,
+      "gzip": 92361
     },
     "./store": {
-      "min": 111149,
-      "gzip": 37656
+      "min": 113898,
+      "gzip": 38591
     },
     "./store/internal": {
-      "min": 35535,
-      "gzip": 12844
+      "min": 37000,
+      "gzip": 13376
     }
   },
   "@assistant-ui/eve": {
@@ -35,8 +35,8 @@
   },
   "@assistant-ui/react": {
     ".": {
-      "min": 133690,
-      "gzip": 43404
+      "min": 133930,
+      "gzip": 43513
     }
   },
   "@assistant-ui/react-a2a": {
@@ -109,8 +109,8 @@
   },
   "@assistant-ui/react-ink": {
     ".": {
-      "min": 66699,
-      "gzip": 19426
+      "min": 66909,
+      "gzip": 19488
     },
     "./internal": {
       "min": 427,
@@ -163,8 +163,8 @@
   },
   "@assistant-ui/react-native": {
     ".": {
-      "min": 37235,
-      "gzip": 10157
+      "min": 37445,
+      "gzip": 10220
     },
     "./internal": {
       "min": 427,
