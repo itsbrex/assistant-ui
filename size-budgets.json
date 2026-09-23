@@ -255,8 +255,8 @@
   },
   "assistant-cloud": {
     ".": {
-      "min": 28940,
-      "gzip": 9036
+      "min": 29363,
+      "gzip": 9179
     },
     "./ai-sdk": {
       "min": 4164,
