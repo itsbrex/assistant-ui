@@ -408,6 +408,8 @@ function runExecutable(root, env = {}) {
         HEAD_SHA: "",
         GITHUB_ACTIONS: "",
         GITHUB_STEP_SUMMARY: "",
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        GIT_CONFIG_SYSTEM: "/dev/null",
         CHANGESET_SEMVER_CHECK_ROOT: root,
         ...env,
       },
@@ -522,6 +524,39 @@ test("the executable analyzes only the changesets the PR range adds", () => {
       result.stdout,
       /already-on-base/,
       "a changeset the PR did not touch was analyzed",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a changeset the PR renames and edits is analyzed under its new name", () => {
+  const summary =
+    "fix: keep the thread list stable when a fetch lands late and tell the runtime about it";
+  const root = createWorkspace(
+    [{ name: "@fixture/dep", version: "0.12.15" }],
+    {},
+  );
+  try {
+    writeFileSync(
+      path.join(root, ".changeset", "old-name.md"),
+      `---\n"@fixture/dep": patch\n---\n\n${summary}\n`,
+    );
+    git(root, "init", "-q", "-b", "main");
+    const base = commitAll(root, "base");
+    rmSync(path.join(root, ".changeset", "old-name.md"));
+    writeFileSync(
+      path.join(root, ".changeset", "new-name.md"),
+      `---\n"@fixture/dep": minor\n---\n\n${summary}\n`,
+    );
+    const head = commitAll(root, "head");
+
+    const result = runExecutable(root, { BASE_SHA: base, HEAD_SHA: head });
+
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(
+      result.stdout,
+      /`new-name\.md` \| `@fixture\/dep` \| 0\.12\.15 \| \*\*minor\*\*/,
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
