@@ -33,6 +33,47 @@ export function isOutsideCaretRange(rangeVersion, newVersion) {
   return newMajor !== rangeMajor;
 }
 
+function compareVersions(left, right) {
+  for (let index = 0; index < 3; index++) {
+    if (left[index] !== right[index]) return left[index] - right[index];
+  }
+  return 0;
+}
+
+const CARET =
+  /^\^[v=\s]*(0|[1-9]\d*)(?:\.(0|[1-9]\d*|[xX*])(?:\.(0|[1-9]\d*|[xX*])(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)?)?$/;
+
+// A prerelease tag on the floor is dropped because every compared version is
+// a release, which such a floor admits from its release tuple on.
+function caretBounds(range) {
+  const bounds = [];
+  for (const alternative of range.split("||")) {
+    const match = CARET.exec(alternative.trim());
+    if (!match) return null;
+    const given = [];
+    for (const part of match.slice(1)) {
+      if (!/^\d+$/.test(part ?? "")) break;
+      given.push(Number(part));
+    }
+    const lower = [...given, 0, 0].slice(0, 3);
+    const nonZero = given.findIndex((part) => part !== 0);
+    const pivot = nonZero === -1 ? given.length - 1 : nonZero;
+    const upper = lower.map((part, index) =>
+      index < pivot ? part : index === pivot ? part + 1 : 0,
+    );
+    bounds.push({ lower, upper });
+  }
+  return bounds;
+}
+
+function satisfiesCaretRange(range, version) {
+  const parts = version.split(".").map(Number);
+  return (caretBounds(range) ?? []).some(
+    ({ lower, upper }) =>
+      compareVersions(parts, lower) >= 0 && compareVersions(parts, upper) < 0,
+  );
+}
+
 export function buildDependencyGraph(manifests) {
   const pkgMap = new Map();
   for (const pkg of manifests) {
@@ -52,7 +93,9 @@ export function buildDependencyGraph(manifests) {
       // every other protocol spelling in a published dependency field.
       const range =
         rawRange === "workspace:^" ? `^${target.version}` : rawRange;
-      if (!range.startsWith("^")) continue;
+      // changesets drops an edge whose range misses the current version, so
+      // such a dependent is never cascaded onto.
+      if (!satisfiesCaretRange(range, target.version)) continue;
       if (!revDeps.has(dependency)) revDeps.set(dependency, []);
       revDeps.get(dependency).push({
         name: pkg.name,
@@ -77,8 +120,7 @@ export function computeCascade(bumps, pkgMap, revDeps) {
     const { name, newVersion } = queue[index];
     for (const dependent of revDeps.get(name) ?? []) {
       if (visited.has(dependent.name)) continue;
-      const rangeVersion = dependent.range.replace(/^\^/, "");
-      if (!isOutsideCaretRange(rangeVersion, newVersion)) continue;
+      if (satisfiesCaretRange(dependent.range, newVersion)) continue;
       visited.add(dependent.name);
 
       const version = pkgMap.get(dependent.name)?.version ?? dependent.version;
