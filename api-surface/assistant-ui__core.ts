@@ -670,6 +670,7 @@ type AssistantTransportConnectionMetadata = {
 type AssistantTransportOptions<T> = {
   initialState: T;
   api: string;
+  cloud?: AssistantCloud | undefined;
   resumeApi?: string;
   resumeStateApi?: string;
   protocol?: AssistantTransportProtocol;
