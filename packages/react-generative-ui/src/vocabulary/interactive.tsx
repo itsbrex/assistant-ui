@@ -1,6 +1,10 @@
 import { useId, type ReactNode } from "react";
 import { z } from "zod";
-import { CHECKBOX_GROUP_ATTR, GENERATED_NAME_ATTR } from "../constants";
+import {
+  CHECKBOX_GROUP_ATTR,
+  FIELD_NAME_ATTR,
+  GENERATED_NAME_ATTR,
+} from "../constants";
 import type { Action } from "../ir";
 import { BUTTON_STYLES } from "../ir";
 import type {
@@ -10,6 +14,7 @@ import type {
 } from "../types";
 import { actionAttr, fire } from "./dispatch";
 import { toTextContent } from "./toTextContent";
+import { useRadioGroupName } from "../RadioGroupScope";
 
 const optionSchema = z.object({
   label: z.string(),
@@ -59,8 +64,7 @@ function RadioGroupRender({
   $action,
   $dispatch,
 }: RadioGroupRenderProps) {
-  const generatedName = useId();
-  const fieldName = name ?? generatedName;
+  const groupName = useRadioGroupName(name);
   return (
     <fieldset
       key={defaultValue}
@@ -72,7 +76,8 @@ function RadioGroupRender({
         <label key={key} data-aui="radiogroup-option">
           <input
             type="radio"
-            name={fieldName}
+            name={groupName}
+            {...{ [FIELD_NAME_ATTR]: name }}
             {...(name == null ? { [GENERATED_NAME_ATTR]: "" } : {})}
             value={option.value}
             defaultChecked={defaultValue === option.value}

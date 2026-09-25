@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
 import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { createRoot, hydrateRoot, type Root } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { convertSurfaceToUISpec } from "../a2ui/convert";
 import { applyA2uiOperations } from "../a2ui/reducer";
@@ -51,6 +52,203 @@ const mount = async (
   });
   return container;
 };
+
+describe("RadioGroup", () => {
+  it("keeps repeated logical fields exclusive within one root without a form", async () => {
+    const save = vi.fn();
+    const container = await mount(
+      {
+        $type: "Col",
+        children: [
+          { $type: "RadioGroup", name: "choice", options: toppings },
+          { $type: "RadioGroup", name: "choice", options: toppings },
+          {
+            $type: "Button",
+            label: "Save",
+            $action: { type: "save", choice: { $field: "choice" } },
+          },
+        ],
+      },
+      { save },
+    );
+    const inputs = container.querySelectorAll("input");
+    await act(async () => inputs[4]!.click());
+    await act(async () => inputs[0]!.click());
+    await act(async () => container.querySelector("button")!.click());
+
+    expect(inputs[4]!.checked).toBe(false);
+    expect(save).toHaveBeenCalledWith({
+      payload: { type: "save", choice: "basil" },
+    });
+  });
+
+  it.each(["Form", "Card"])(
+    "keeps repeated logical names mutually exclusive inside a %s form",
+    async ($type) => {
+      const save = vi.fn();
+      const container = await mount(
+        {
+          $type,
+          ...($type === "Form"
+            ? { $action: { type: "save" } }
+            : {
+                asForm: true,
+                confirm: { label: "Save", $action: { type: "save" } },
+              }),
+          children: [
+            { $type: "RadioGroup", name: "choice", options: toppings },
+            {
+              $type: "Card",
+              children: {
+                $type: "RadioGroup",
+                name: "choice",
+                options: toppings,
+              },
+            },
+            ...($type === "Form"
+              ? [{ $type: "Button", label: "Save", submit: true }]
+              : []),
+          ],
+        },
+        { save },
+      );
+      const inputs = container.querySelectorAll("input");
+      await act(async () => inputs[4]!.click());
+      await act(async () => inputs[0]!.click());
+      await act(async () => container.querySelector("button")!.click());
+
+      expect(inputs[4]!.checked).toBe(false);
+      expect(save).toHaveBeenCalledWith({
+        payload: { type: "save", $input: { choice: "basil" } },
+      });
+    },
+  );
+
+  it("preserves independent selections across separately rendered and hydrated roots", async () => {
+    const save = vi.fn();
+    const registry = createActionRegistry({ save });
+    const tree = view(
+      {
+        $type: "Col",
+        children: [
+          { $type: "RadioGroup", name: "choice", options: toppings },
+          {
+            $type: "Button",
+            label: "Save",
+            $action: { type: "save", choice: { $field: "choice" } },
+          },
+        ],
+      },
+      registry.dispatch,
+    );
+    const containers = ["first-", "second-"].map((identifierPrefix) => {
+      const container = document.createElement("div");
+      container.innerHTML = renderToString(tree, { identifierPrefix });
+      document.body.append(container);
+      return { container, identifierPrefix };
+    });
+    const hydratedRoots: Root[] = [];
+    const onRecoverableError = vi.fn();
+    try {
+      await act(async () => {
+        for (const { container, identifierPrefix } of containers) {
+          hydratedRoots.push(
+            hydrateRoot(container, tree, {
+              identifierPrefix,
+              onRecoverableError,
+            }),
+          );
+        }
+      });
+      for (const [index, { container }] of containers.entries()) {
+        await act(async () =>
+          container.querySelectorAll("input")[index]!.click(),
+        );
+      }
+      for (const { container } of containers) {
+        await act(async () => container.querySelector("button")!.click());
+      }
+
+      expect(save.mock.calls.map(([{ payload }]) => payload)).toEqual([
+        { type: "save", choice: "basil" },
+        { type: "save", choice: "olives" },
+      ]);
+      expect(onRecoverableError).not.toHaveBeenCalled();
+    } finally {
+      await act(async () => hydratedRoots.forEach((item) => item.unmount()));
+    }
+  });
+
+  it("keeps same-named groups in separate roots independent and resolves their field values", async () => {
+    const save = vi.fn();
+    const registry = createActionRegistry({ save });
+    const container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+    const card = (id: string) => ({
+      $type: "Col",
+      children: [
+        { $type: "RadioGroup", name: "choice", options: toppings },
+        {
+          $type: "Button",
+          label: "Save",
+          $action: { type: "save", id, choice: { $field: "choice" } },
+        },
+      ],
+    });
+    await act(async () => {
+      root!.render(
+        <>
+          {view(card("first"), registry.dispatch)}
+          {view(card("second"), registry.dispatch)}
+        </>,
+      );
+    });
+    const inputs = container.querySelectorAll("input");
+    const [firstSave, secondSave] = container.querySelectorAll("button");
+
+    await act(async () => inputs[0]!.click());
+    await act(async () => inputs[4]!.click());
+    await act(async () => firstSave!.click());
+    await act(async () => secondSave!.click());
+
+    expect(save.mock.calls.map(([{ payload }]) => payload)).toEqual([
+      { type: "save", id: "first", choice: "basil" },
+      { type: "save", id: "second", choice: "olives" },
+    ]);
+    expect(inputs[0]!.checked).toBe(true);
+    expect(inputs[4]!.checked).toBe(true);
+
+    await act(async () => inputs[2]!.click());
+    expect(inputs[0]!.checked).toBe(false);
+    expect(inputs[2]!.checked).toBe(true);
+    expect(inputs[4]!.checked).toBe(true);
+  });
+
+  it("submits logical field names and omits unnamed groups", async () => {
+    const save = vi.fn();
+    const container = await mount(
+      {
+        $type: "Form",
+        $action: { type: "save" },
+        children: [
+          { $type: "RadioGroup", name: "choice", options: toppings },
+          { $type: "RadioGroup", options: toppings },
+          { $type: "Button", label: "Save", submit: true },
+        ],
+      },
+      { save },
+    );
+    const inputs = container.querySelectorAll("input");
+    await act(async () => inputs[0]!.click());
+    await act(async () => inputs[4]!.click());
+    await act(async () => container.querySelector("button")!.click());
+
+    expect(save).toHaveBeenCalledWith({
+      payload: { type: "save", $input: { choice: "basil" } },
+    });
+  });
+});
 
 describe("option identity", () => {
   it.each(["CheckboxGroup", "RadioGroup", "Select"])(
