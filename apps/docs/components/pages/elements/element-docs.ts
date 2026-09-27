@@ -1569,8 +1569,8 @@ const matches = useMentionMatches(value, people);
 
 <ThreadList
   threads={[
-    { title: "Composer polish", time: "2m", unread: true },
-    { title: "Runtime migration", time: "1h" },
+    { id: "composer", title: "Composer polish", time: "2m", unread: true },
+    { id: "runtime", title: "Runtime migration", time: "1h" },
   ]}
   activeIndex={activeIndex}
   onActiveIndexChange={setActiveIndex}
@@ -1584,7 +1584,7 @@ const matches = useMentionMatches(value, people);
             type: "readonly ThreadItem[]",
             required: true,
             description:
-              "Conversation rows with title, time, and optional unread mark.",
+              "Conversation rows with a stable id, title, time, and optional unread mark.",
           },
           {
             name: "activeIndex",
@@ -1598,6 +1598,18 @@ const matches = useMentionMatches(value, people);
             type: "(index: number) => void",
             description:
               "Called when the user clicks a thread row. Without it, rows render as non-interactive list items.",
+          },
+          {
+            name: "onRename",
+            type: "(index: number) => void",
+            description:
+              "Shows a labelled rename button and reports the clicked row.",
+          },
+          {
+            name: "onDelete",
+            type: "(index: number) => void",
+            description:
+              "Shows a labelled delete button and reports the clicked row.",
           },
           {
             name: "className",
