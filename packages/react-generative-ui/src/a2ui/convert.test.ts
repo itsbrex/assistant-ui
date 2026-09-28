@@ -1348,6 +1348,175 @@ describe("convertSurfaceToUISpec", () => {
     });
   });
 
+  it("carries an event's userMessage when it resolves to a string", () => {
+    const surface = surfaceFrom(
+      [
+        { id: "root", component: "Row", children: ["greet", "count"] },
+        {
+          id: "greet",
+          component: "Button",
+          label: "Greet",
+          action: {
+            event: {
+              name: "greet",
+              userMessage: {
+                call: "formatString",
+                args: { value: "Greet ${/name}" },
+              },
+            },
+          },
+        },
+        {
+          id: "count",
+          component: "Button",
+          label: "Count",
+          action: { event: { name: "count", userMessage: { path: "/count" } } },
+        },
+      ],
+      { name: "Ada", count: 3 },
+    );
+
+    expect(convertSurfaceToUISpec(surface)).toEqual({
+      spec: {
+        $type: "Row",
+        children: [
+          {
+            $type: "Button",
+            label: "Greet",
+            $action: {
+              type: "a2ui:action",
+              name: "greet",
+              surfaceId: "",
+              sourceComponentId: "greet",
+              userMessage: "Greet Ada",
+            },
+          },
+          {
+            $type: "Button",
+            label: "Count",
+            $action: {
+              type: "a2ui:action",
+              name: "count",
+              surfaceId: "",
+              sourceComponentId: "count",
+            },
+          },
+        ],
+      },
+      warnings: [],
+    });
+  });
+
+  it("points a userMessage only at a lone text input bound to its exact path", () => {
+    const surface = surfaceFrom(
+      [
+        {
+          id: "root",
+          component: "Column",
+          children: [
+            "email",
+            "volume",
+            "note",
+            "qty",
+            "qty-level",
+            "form",
+            "level",
+            "draft",
+            "copy",
+          ],
+        },
+        { id: "email", component: "TextField", value: { path: "/form/email" } },
+        {
+          id: "volume",
+          component: "Slider",
+          max: 10,
+          value: { path: "/volume" },
+        },
+        { id: "note", component: "TextField", value: { path: "/note" } },
+        { id: "qty", component: "TextField", value: { path: "/qty" } },
+        {
+          id: "qty-level",
+          component: "Slider",
+          max: 10,
+          value: { path: "/qty" },
+        },
+        {
+          id: "form",
+          component: "Button",
+          label: "Form",
+          action: { event: { name: "form", userMessage: { path: "/form" } } },
+        },
+        {
+          id: "level",
+          component: "Button",
+          label: "Level",
+          action: {
+            event: { name: "level", userMessage: { path: "/volume" } },
+          },
+        },
+        {
+          id: "draft",
+          component: "Button",
+          label: "Draft",
+          action: { event: { name: "draft", userMessage: { path: "/note" } } },
+        },
+        {
+          id: "copy",
+          component: "Button",
+          label: "Copy",
+          action: { event: { name: "copy", userMessage: { path: "/qty" } } },
+        },
+      ],
+      { form: { email: "ada@example.com" }, volume: 4, qty: "2" },
+    );
+
+    const { spec, warnings } = convertSurfaceToUISpec(surface);
+
+    expect(warnings).toEqual([]);
+    expect(spec?.["children"]).toContainEqual({
+      $type: "Button",
+      label: "Form",
+      $action: {
+        type: "a2ui:action",
+        name: "form",
+        surfaceId: "",
+        sourceComponentId: "form",
+      },
+    });
+    expect(spec?.["children"]).toContainEqual({
+      $type: "Button",
+      label: "Level",
+      $action: {
+        type: "a2ui:action",
+        name: "level",
+        surfaceId: "",
+        sourceComponentId: "level",
+      },
+    });
+    expect(spec?.["children"]).toContainEqual({
+      $type: "Button",
+      label: "Draft",
+      $action: {
+        type: "a2ui:action",
+        name: "draft",
+        surfaceId: "",
+        sourceComponentId: "draft",
+        userMessage: { $field: "/note" },
+      },
+    });
+    expect(spec?.["children"]).toContainEqual({
+      $type: "Button",
+      label: "Copy",
+      $action: {
+        type: "a2ui:action",
+        name: "copy",
+        surfaceId: "",
+        sourceComponentId: "copy",
+        userMessage: "2",
+      },
+    });
+  });
+
   it("takes a button label only from a Text child and keeps action data as bound", () => {
     const surface = surfaceFrom(
       [

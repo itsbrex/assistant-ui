@@ -317,9 +317,14 @@ type ConversionContext = {
   functionDepthWarned: boolean;
   readonly templates: Map<string, ExpressionPart[] | null>;
   readonly inputFields: Map<string, unknown>;
+  readonly textFields: Map<string, boolean>;
   readonly boundActionEntries: {
     readonly target: Record<string, unknown>;
     readonly key: string;
+    readonly pointer: string;
+  }[];
+  readonly boundUserMessages: {
+    readonly action: Record<string, unknown>;
     readonly pointer: string;
   }[];
   readonly keepUnknownComponents: boolean;
@@ -383,36 +388,47 @@ const recordBindings = (
     typeof value !== "string" ||
     value === "" ||
     DATE_PATTERN.test(value);
-  if (
-    INPUT_COMPONENTS.has(String(component)) &&
-    typeof name === "string" &&
-    holdsValue
-  ) {
-    const field = (fallback: unknown) =>
-      fallback === undefined ? { $field: name } : { $field: name, fallback };
-    // A single-choice picker collects one string, while the spec binds it to a string list.
-    const listValued =
-      component === "ChoicePicker" &&
-      mapped.$type !== "CheckboxGroup" &&
-      typeof value !== "string";
-    context.inputFields.set(
+  if (INPUT_COMPONENTS.has(String(component)) && typeof name === "string") {
+    // Controls that share a name collect as a list, so only a lone text control collects one string.
+    context.textFields.set(
       name,
-      listValued
-        ? [field(Array.isArray(value) ? value[0] : undefined)]
-        : field(value),
+      !context.textFields.has(name) &&
+        holdsValue &&
+        (component === "TextField" || component === "DateTimeInput"),
     );
+    if (holdsValue) {
+      const field = (fallback: unknown) =>
+        fallback === undefined ? { $field: name } : { $field: name, fallback };
+      // A single-choice picker collects one string, while the spec binds it to a string list.
+      const listValued =
+        component === "ChoicePicker" &&
+        mapped.$type !== "CheckboxGroup" &&
+        typeof value !== "string";
+      context.inputFields.set(
+        name,
+        listValued
+          ? [field(Array.isArray(value) ? value[0] : undefined)]
+          : field(value),
+      );
+    }
   }
   const action = mapped.$action;
   const raw = node["action"];
   if (!action || !isRecord(raw)) return;
   const functionCall = action.type === "a2ui:functionCall";
+  const event = isRecord(raw["event"]) ? raw["event"] : raw;
+  const userMessage = event["userMessage"];
+  if (!functionCall && isBinding(userMessage)) {
+    context.boundUserMessages.push({
+      action,
+      pointer: pointerIn(scope, userMessage.path),
+    });
+  }
   const rawEntries = functionCall
     ? isRecord(raw["functionCall"])
       ? raw["functionCall"]["args"]
       : undefined
-    : isRecord(raw["event"])
-      ? raw["event"]["context"]
-      : raw["context"];
+    : event["context"];
   const target = functionCall ? action["args"] : action["context"];
   if (!isRecord(rawEntries) || !isRecord(target)) return;
   for (const [key, entry] of Object.entries(rawEntries)) {
@@ -530,10 +546,12 @@ const mappedAction = (
         : undefined;
   if (actionName) {
     const actionContext = isRecord(event) ? event["context"] : undefined;
+    const userMessage = isRecord(event) ? event["userMessage"] : undefined;
     return {
       type: "a2ui:action",
       name: actionName,
       ...source,
+      ...(typeof userMessage === "string" ? { userMessage } : {}),
       ...(actionContext !== undefined ? { context: actionContext } : {}),
     };
   }
@@ -1000,7 +1018,9 @@ export function convertSurfaceToUISpec(
     functionDepthWarned: false,
     templates: new Map(),
     inputFields: new Map(),
+    textFields: new Map(),
     boundActionEntries: [],
+    boundUserMessages: [],
     keepUnknownComponents: options.keepUnknownComponents === true,
   };
   try {
@@ -1018,6 +1038,17 @@ export function convertSurfaceToUISpec(
         context.inputFields,
       );
       if (value !== undefined) setOwnProperty(target, key, value);
+    }
+    for (const { action, pointer } of context.boundUserMessages) {
+      if (!context.textFields.get(pointer)) continue;
+      const fallback = action["userMessage"];
+      setOwnProperty(
+        action,
+        "userMessage",
+        typeof fallback === "string"
+          ? { $field: pointer, fallback }
+          : { $field: pointer },
+      );
     }
     return { spec, warnings };
   } catch {
