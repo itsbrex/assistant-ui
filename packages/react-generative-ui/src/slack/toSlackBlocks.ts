@@ -6,7 +6,6 @@ import {
 import { copyBounded } from "../convert/copyBounded";
 import { isElement } from "../convert/isElement";
 import { takeRun } from "../convert/takeRun";
-import { hasFieldReference, resolveFieldReferences } from "../fieldReferences";
 import {
   normalizeSpec,
   type NormalizedUIElement,
@@ -72,10 +71,19 @@ type ConversionContext = {
   readonly blockCap: number;
   readonly surface: "message" | "modal";
   readonly warnings: SlackConversionWarning[];
+  fieldBlockIdSequence: number;
   markdownCharacters: number;
   markdownExhausted: boolean;
   dataTableCharacters: number;
 };
+
+type FieldMapping = {
+  readonly actionId: string;
+  readonly name: string;
+  readonly component: string;
+};
+
+const SLACK_BLOCK_ID_CAP = 255;
 
 const INTERACTIVE_TYPES = new Set([
   "Button",
@@ -156,6 +164,37 @@ const plainText = (text: string): SlackPlainText => ({
   text,
 });
 
+const serializeFieldBlockId = (
+  sequence: number,
+  fields: readonly FieldMapping[],
+): string =>
+  `aui:${sequence}:${JSON.stringify(
+    fields.map(({ actionId, name, component }) =>
+      component === "Checkbox"
+        ? [actionId, name, "Checkbox"]
+        : [actionId, name],
+    ),
+  )}`;
+
+const fieldBlockId = (
+  fields: readonly FieldMapping[],
+  context: ConversionContext,
+): string | undefined => {
+  if (fields.length === 0) return undefined;
+  const sequence = context.fieldBlockIdSequence++;
+  const blockId = serializeFieldBlockId(sequence, fields);
+  if (blockId.length <= SLACK_BLOCK_ID_CAP) return blockId;
+  for (const field of fields) {
+    warn(
+      context,
+      "dropped",
+      field.component,
+      "name could not be mapped because its Slack block_id exceeded 255 characters.",
+    );
+  }
+  return undefined;
+};
+
 const actionValue = (action: unknown): string | undefined => {
   if (!isRecord(action)) return undefined;
   const { type: _type, ...payload } = action;
@@ -175,17 +214,7 @@ const buttonElement = (
   component: string,
   context: ConversionContext,
 ): SlackButtonElement => {
-  let payload = action;
-  if (hasFieldReference(action)) {
-    warn(
-      context,
-      "fallback",
-      component,
-      "field references in value became their fallback, or were dropped without one, because Slack sends no other control's value with a button click.",
-    );
-    payload = resolveFieldReferences(action, {});
-  }
-  const serializedValue = actionValue(payload);
+  const serializedValue = actionValue(action);
   let value = serializedValue;
   if (value !== undefined && value.length > BUTTON_VALUE_CAP) {
     warn(
@@ -499,13 +528,87 @@ const convertActions = (
   context: ConversionContext,
 ): SlackBlock[] => {
   const converted = elements
-    .map((element) => toActionElement(element, context))
-    .filter((element): element is SlackActionElement => element !== undefined);
+    .map((source) => ({
+      source,
+      element: toActionElement(source, context),
+    }))
+    .filter(
+      (
+        entry,
+      ): entry is {
+        readonly source: NormalizedUIElement;
+        readonly element: SlackActionElement;
+      } => entry.element !== undefined,
+    );
   const blocks: SlackBlock[] = [];
-  for (let index = 0; index < converted.length; index += ACTIONS_ELEMENT_CAP) {
+  const groups: (typeof converted)[] = [];
+  let group: typeof converted = [];
+  let actionIds = new Set<string>();
+  const hasFieldName = (entry: (typeof converted)[number]): boolean => {
+    const name = entry.source.props["name"];
+    return typeof name === "string" && name.length > 0;
+  };
+  const fieldsFor = (entries: typeof converted): FieldMapping[] =>
+    entries.flatMap(({ source, element }) => {
+      const name = source.props["name"];
+      return typeof name === "string" && name.length > 0
+        ? [{ actionId: element.action_id, name, component: source.type }]
+        : [];
+    });
+  for (const entry of converted) {
+    const repeatedMappedActionId =
+      actionIds.has(entry.element.action_id) &&
+      (hasFieldName(entry) ||
+        group.some(
+          (candidate) =>
+            candidate.element.action_id === entry.element.action_id &&
+            hasFieldName(candidate),
+        ));
+    if (group.length === ACTIONS_ELEMENT_CAP || repeatedMappedActionId) {
+      groups.push(group);
+      group = [];
+      actionIds = new Set();
+    }
+    group.push(entry);
+    actionIds.add(entry.element.action_id);
+  }
+  if (group.length > 0) groups.push(group);
+  const mappedGroups: (typeof converted)[] = [];
+  let nextSequence = context.fieldBlockIdSequence;
+  for (const entries of groups) {
+    let current: typeof converted = [];
+    for (const entry of entries) {
+      const candidate = [...current, entry];
+      const fields = fieldsFor(candidate);
+      const blockId =
+        fields.length > 0
+          ? serializeFieldBlockId(nextSequence, fields)
+          : undefined;
+      if (
+        current.length > 0 &&
+        fields.length > fieldsFor(current).length &&
+        blockId !== undefined &&
+        blockId.length > SLACK_BLOCK_ID_CAP
+      ) {
+        mappedGroups.push(current);
+        if (fieldsFor(current).length > 0) nextSequence += 1;
+        current = [entry];
+      } else {
+        current = candidate;
+      }
+    }
+    if (current.length > 0) {
+      mappedGroups.push(current);
+      if (fieldsFor(current).length > 0) nextSequence += 1;
+    }
+  }
+  for (const group of mappedGroups) {
+    const fields = fieldsFor(group);
+    const blockId = fieldBlockId(fields, context);
     blocks.push({
       type: "actions",
-      elements: converted.slice(index, index + ACTIONS_ELEMENT_CAP),
+      ...(blockId !== undefined ? { block_id: blockId } : {}),
+      elements: group.map(({ element }) => element),
     });
   }
   return blocks;
@@ -1234,13 +1337,22 @@ const convertElement = (
       const max = asFiniteNumber(props["max"]);
       const step = asFiniteNumber(props["step"]);
       const defaultValue = asFiniteNumber(props["defaultValue"]);
+      const actionId = asActionId(element.action, "Slider", context);
+      const name = props["name"];
+      const blockId = fieldBlockId(
+        typeof name === "string" && name.length > 0
+          ? [{ actionId, name, component: "Slider" }]
+          : [],
+        context,
+      );
       return [
         {
           type: "input",
+          ...(blockId !== undefined ? { block_id: blockId } : {}),
           label: plainText(label),
           element: {
             type: "number_input",
-            action_id: asActionId(element.action, "Slider", context),
+            action_id: actionId,
             ...(min !== undefined ? { min_value: min } : {}),
             ...(max !== undefined ? { max_value: max } : {}),
             ...(defaultValue !== undefined
@@ -1270,14 +1382,23 @@ const convertElement = (
         "placeholder",
         context,
       );
+      const actionId = asActionId(element.action, "Input", context);
+      const name = props["name"];
+      const blockId = fieldBlockId(
+        typeof name === "string" && name.length > 0
+          ? [{ actionId, name, component: "Input" }]
+          : [],
+        context,
+      );
       const defaultValue = props["defaultValue"];
       return [
         {
           type: "input",
+          ...(blockId !== undefined ? { block_id: blockId } : {}),
           label: plainText(label),
           element: {
             type: "plain_text_input",
-            action_id: asActionId(element.action, "Input", context),
+            action_id: actionId,
             ...(props["multiline"] === true ? { multiline: true } : {}),
             ...(typeof defaultValue === "string" && defaultValue
               ? { initial_value: defaultValue }
@@ -1482,6 +1603,7 @@ export function toSlackBlocks(
     blockCap: surface === "modal" ? MODAL_BLOCK_CAP : MESSAGE_BLOCK_CAP,
     surface,
     warnings: [],
+    fieldBlockIdSequence: 0,
     markdownCharacters: 0,
     markdownExhausted: false,
     dataTableCharacters: 0,
