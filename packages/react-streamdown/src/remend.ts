@@ -28,6 +28,84 @@ const UNDERSCORE = 95;
 const isSpace = (c: number) => c === SPACE || c === TAB || c === CR;
 const isDigit = (c: number) => c >= 48 && c <= 57;
 
+const isComparisonSpace = (c: number) =>
+  c === SPACE ||
+  c === TAB ||
+  c === 0x0b ||
+  c === 0x0c ||
+  c === 0xa0 ||
+  c === 0x1680 ||
+  (c >= 0x2000 && c <= 0x200a) ||
+  c === 0x2028 ||
+  c === 0x2029 ||
+  c === 0x202f ||
+  c === 0x205f ||
+  c === 0x3000 ||
+  c === 0xfeff;
+
+function matchComparisonOperator(
+  text: string,
+  from: number,
+): { operator: number; end: number } | undefined {
+  let i = from;
+  while (isDigit(text.charCodeAt(i))) i += 1;
+  const marker = text.charCodeAt(i);
+  if (
+    i === from
+      ? marker !== DASH && marker !== ASTERISK && marker !== PLUS
+      : marker !== DOT && marker !== CLOSE_PAREN
+  ) {
+    return;
+  }
+  i += 1;
+  const spaceStart = i;
+  while (text.charCodeAt(i) === SPACE) i += 1;
+  if (i === spaceStart || text.charCodeAt(i) !== GT) return;
+  const operator = i;
+  i += 1;
+  if (text.charCodeAt(i) === EQUALS) i += 1;
+  while (isComparisonSpace(text.charCodeAt(i))) i += 1;
+  if (text.charCodeAt(i) === DOLLAR) i += 1;
+  return isDigit(text.charCodeAt(i)) ? { operator, end: i + 1 } : undefined;
+}
+
+function escapeComparisonOperators(text: string): string {
+  let out = "";
+  let copied = 0;
+  let lineStart = true;
+  let inlineCode = 0;
+  let fencedCode = false;
+  for (let i = 0; i < text.length; i += 1) {
+    if (lineStart && !inlineCode && !fencedCode) {
+      while (isComparisonSpace(text.charCodeAt(i))) i += 1;
+      const match = matchComparisonOperator(text, i);
+      if (match) {
+        out += text.slice(copied, match.operator) + "\\";
+        copied = match.operator;
+        i = match.end - 1;
+      }
+    }
+    const c = text.charCodeAt(i);
+    if (c === 92 && text.charCodeAt(i + 1) === BACKTICK) {
+      i += 1;
+    } else if (c === BACKTICK) {
+      let end = i + 1;
+      while (text.charCodeAt(end) === BACKTICK) end += 1;
+      const run = end - i;
+      if (inlineCode) {
+        if (run === inlineCode) inlineCode = 0;
+      } else if (lineStart && run >= 3) {
+        fencedCode = !fencedCode;
+      } else if (!fencedCode) {
+        inlineCode = run;
+      }
+      i = end - 1;
+    }
+    lineStart = c === 10 || c === CR || c === 0x2028 || c === 0x2029;
+  }
+  return out + text.slice(copied);
+}
+
 function includesChar(
   text: string,
   code: number,
@@ -616,6 +694,20 @@ export function tailBoundedRemend(
   text: string,
   options?: RemendOptions,
 ): string {
+  if (options?.comparisonOperators !== false) {
+    options = {
+      ...options,
+      comparisonOperators: false,
+      handlers: [
+        {
+          name: "comparisonOperators",
+          priority: 5,
+          handle: escapeComparisonOperators,
+        },
+        ...(options?.handlers ?? []),
+      ],
+    };
+  }
   const { boundary, protectedRanges, openStart, katexCloses } =
     scanBlocks(text);
   if (boundary <= 0 && protectedRanges.length === 0 && openStart === -1) {
