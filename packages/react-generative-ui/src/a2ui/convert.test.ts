@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UIElement } from "../ir";
-import { convertSurfaceToUISpec } from "./convert";
+import { convertSurfaceToUISpec, createLiveSurfaceConverter } from "./convert";
 import { applyA2uiOperations } from "./reducer";
 import { surfaceToOperations } from "./snapshot";
 import type { A2uiSurfaceState } from "./types";
@@ -2375,4 +2375,86 @@ describe("convertSurfaceToUISpec", () => {
       warnings: ['A2UI root component "root" was not found.'],
     });
   });
+});
+
+it("keeps live controls internal and action-free while plain conversion stays uncontrolled", () => {
+  const surface = applyA2uiOperations(new Map(), [
+    {
+      version: "v1.0",
+      createSurface: {
+        surfaceId: "main",
+        components: [
+          {
+            id: "root",
+            component: "Column",
+            children: ["field", "pick", "slider"],
+          },
+          { id: "field", component: "TextField", text: { path: "/name" } },
+          {
+            id: "pick",
+            component: "ChoicePicker",
+            value: { path: "/choices" },
+            options: [{ label: "A", value: "a" }],
+          },
+          {
+            id: "slider",
+            component: "Slider",
+            value: { path: "/count" },
+            min: 0,
+            max: 10,
+          },
+        ],
+        dataModel: { name: "Ada", choices: ["a"], count: 2 },
+      },
+    },
+  ]).state.get("main")!;
+  expect(convertSurfaceToUISpec(surface).spec).toMatchObject({
+    children: [
+      { $type: "Input", defaultValue: "Ada" },
+      { $type: "RadioGroup", defaultValue: "a" },
+      { $type: "Slider", defaultValue: 2 },
+    ],
+  });
+  const convert = createLiveSurfaceConverter(surface);
+  const live = convert(surface.dataModel);
+  expect(live.spec).toEqual({
+    $type: "Col",
+    children: [
+      {
+        $type: "Input",
+        value: "Ada",
+        name: "/name",
+      },
+      {
+        $type: "RadioGroup",
+        value: "a",
+        name: "/choices",
+        options: [{ label: "A", value: "a" }],
+      },
+      {
+        $type: "Slider",
+        value: 2,
+        name: "/count",
+        min: 0,
+        max: 10,
+        step: 0.1,
+      },
+    ],
+  });
+  expect(live.bindings).toEqual(
+    new Map([
+      ["/name", { value: "Ada", arrayValue: false }],
+      ["/choices", { value: "a", arrayValue: true }],
+      ["/count", { value: 2, arrayValue: false }],
+    ]),
+  );
+  const updated = convert({ name: "Grace", choices: ["a"], count: 2 });
+  expect((updated.spec!.children as UIElement[])[0]).toEqual({
+    $type: "Input",
+    name: "/name",
+    value: "Grace",
+  });
+  expect((updated.spec!.children as UIElement[])[2]).toBe(
+    (live.spec!.children as UIElement[])[2],
+  );
 });
