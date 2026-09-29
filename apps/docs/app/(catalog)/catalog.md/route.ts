@@ -6,7 +6,7 @@ import {
   formatMinutes,
 } from "@/lib/catalog";
 import { installGuideUrl } from "@/lib/catalog/install-guide";
-import { shopEnabled } from "@/lib/checkout/config";
+import { checkoutEnabled } from "@/lib/checkout/config";
 import { BASE_URL } from "@/lib/constants";
 import { createMarkdownResponse } from "@/lib/markdown-response";
 
@@ -29,12 +29,19 @@ const formatProduct = (product: (typeof CATALOG)[number]) =>
     "Includes:",
     ...product.includes.map((item) => `- ${item}`),
     "",
+    ...(product.features
+      ? [
+          "Works out of the box:",
+          ...product.features.map((item) => `- ${item}`),
+          "",
+        ]
+      : []),
     "Requires:",
     ...product.requires.map((item) => `- ${item}`),
   ].join("\n");
 
 export function GET() {
-  if (!shopEnabled) return new Response("Not found", { status: 404 });
+  if (!checkoutEnabled) return new Response("Not found", { status: 404 });
   const markdown = [
     "# assistant-ui catalog",
     "",
