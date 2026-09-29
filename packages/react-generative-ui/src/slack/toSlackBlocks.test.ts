@@ -1,6 +1,10 @@
 import { decodeBlockAction } from "./decodeBlockAction";
 import { describe, expect, it } from "vitest";
-import { CHILDREN_CAP, NODE_BUDGET } from "../convert/boundSpec";
+import {
+  CHILDREN_CAP,
+  MAX_TRAVERSAL_DEPTH,
+  NODE_BUDGET,
+} from "../convert/boundSpec";
 import { toSlackBlocks } from "./toSlackBlocks";
 import {
   ACTION_ID_CAP,
@@ -570,6 +574,125 @@ describe("toSlackBlocks", () => {
   });
 
   describe("Input", () => {
+    it("keeps number text and drops the omitted password's field fallback", () => {
+      const { blocks, warnings } = toSlackBlocks([
+        {
+          $type: "Input",
+          name: "quantity",
+          inputType: "number",
+          defaultValue: "2.5",
+          $action: { type: "edit_quantity" },
+        },
+        {
+          $type: "Input",
+          name: "password",
+          label: "Password",
+          inputType: "password",
+          defaultValue: "secret",
+        },
+        {
+          $type: "Button",
+          label: "Submit",
+          $action: {
+            type: "submit",
+            quantity: { $field: "quantity" },
+            password: { $field: "password", fallback: "secret" },
+          },
+        },
+      ]);
+      expect(blocks[0]).toMatchObject({
+        type: "input",
+        element: { type: "plain_text_input", initial_value: "2.5" },
+      });
+      expect(blocks[1]).toEqual({
+        type: "context",
+        elements: [
+          { type: "mrkdwn", text: "Password input omitted on Slack." },
+        ],
+      });
+      expect(blocks.filter((block) => block.type === "input")).toHaveLength(1);
+      expect(JSON.stringify(blocks)).not.toContain("secret");
+      expect(warnings).toContainEqual({
+        code: "dropped",
+        component: "Input",
+        detail: "Password input was replaced by a Slack omission note.",
+      });
+      const button = blocks[2];
+      const numberInput = blocks[0];
+      if (
+        button?.type !== "actions" ||
+        button.elements[0]?.type !== "button" ||
+        numberInput?.type !== "input" ||
+        !numberInput.block_id
+      ) {
+        throw new Error("Expected a named number input and submit button");
+      }
+      expect(
+        decodeBlockAction(button.elements[0], {
+          [numberInput.block_id]: {
+            edit_quantity: { type: "plain_text_input", value: "3.5" },
+          },
+        }),
+      ).toEqual({
+        type: "submit",
+        quantity: "3.5",
+      });
+    });
+
+    it("drops nested password fallbacks from button values", () => {
+      const { blocks } = toSlackBlocks({
+        $type: "Col",
+        children: [
+          {
+            $type: "Input",
+            name: "password",
+            inputType: "password",
+          },
+          {
+            $type: "Button",
+            label: "Submit",
+            $action: {
+              type: "submit",
+              fields: [
+                { password: { $field: "password", fallback: "secret" } },
+              ],
+            },
+          },
+        ],
+      });
+      expect(JSON.stringify(blocks)).not.toContain("secret");
+    });
+
+    it("drops a button value that nests a password reference past the traversal limit", () => {
+      let nested: unknown = { $field: "password", fallback: "secret" };
+      for (let depth = 0; depth <= MAX_TRAVERSAL_DEPTH; depth++) {
+        nested = { nested };
+      }
+      const { blocks, warnings } = toSlackBlocks({
+        $type: "Col",
+        children: [
+          { $type: "Input", name: "password", inputType: "password" },
+          {
+            $type: "Button",
+            label: "Submit",
+            $action: { type: "submit", nested },
+          },
+        ],
+      });
+      expect(JSON.stringify(blocks)).not.toContain("secret");
+      expect(warnings).toContainEqual({
+        code: "dropped",
+        component: "Button",
+        detail:
+          "value was dropped because the action payload could not be serialized.",
+      });
+      const button = blocks[1];
+      if (button?.type !== "actions" || button.elements[0]?.type !== "button") {
+        throw new Error("Expected a submit button");
+      }
+      expect(button.elements[0].value).toBeUndefined();
+    });
+
     it("carries a named control in its block_id", () => {
       const { blocks, warnings } = toSlackBlocks({
         $type: "Input",
@@ -623,6 +746,17 @@ describe("toSlackBlocks", () => {
         $type: "Input",
         label: "Name",
         $action: { type: "name" },
+      });
+      expect((blocks[0] as SlackInputBlock).element).not.toHaveProperty(
+        "multiline",
+      );
+    });
+
+    it("omits multiline for a number input", () => {
+      const { blocks } = toSlackBlocks({
+        $type: "Input",
+        inputType: "number",
+        multiline: true,
       });
       expect((blocks[0] as SlackInputBlock).element).not.toHaveProperty(
         "multiline",
@@ -2720,11 +2854,19 @@ describe("toSlackBlocks", () => {
       expect(() =>
         toSlackBlocks({ $type: "Button", label: "Go", $action: circular }),
       ).not.toThrow();
-      const { blocks } = toSlackBlocks({
+      const { blocks, warnings } = toSlackBlocks({
         $type: "Button",
         label: "Go",
         $action: circular,
       });
+      expect(warnings).toEqual([
+        {
+          code: "dropped",
+          component: "Button",
+          detail:
+            "value was dropped because the action payload could not be serialized.",
+        },
+      ]);
       expect(blocks[0]).toEqual({
         type: "actions",
         elements: [

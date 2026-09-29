@@ -71,6 +71,7 @@ type ConversionContext = {
   readonly blockCap: number;
   readonly surface: "message" | "modal";
   readonly warnings: SlackConversionWarning[];
+  readonly omittedPasswordNames: Set<string>;
   fieldBlockIdSequence: number;
   markdownCharacters: number;
   markdownExhausted: boolean;
@@ -195,16 +196,72 @@ const fieldBlockId = (
   return undefined;
 };
 
-const actionValue = (action: unknown): string | undefined => {
+const collectOmittedPasswordNames = (
+  node: NormalizedUINode,
+  names: Set<string>,
+  depth = 0,
+): void => {
+  if (depth > MAX_TRAVERSAL_DEPTH) return;
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      collectOmittedPasswordNames(child, names, depth + 1);
+    }
+  } else if (isElement(node)) {
+    if (
+      node.type === "Input" &&
+      node.props["inputType"] === "password" &&
+      typeof node.props["name"] === "string"
+    ) {
+      names.add(node.props["name"]);
+    }
+    if (node.children !== undefined) {
+      collectOmittedPasswordNames(node.children, names, depth + 1);
+    }
+  }
+};
+
+const withoutOmittedPasswordFallbacks = (
+  value: unknown,
+  names: ReadonlySet<string>,
+  depth = 0,
+): unknown => {
+  if (depth > MAX_TRAVERSAL_DEPTH) {
+    throw new RangeError("Action payload nests too deeply to sanitize.");
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      withoutOmittedPasswordFallbacks(item, names, depth + 1),
+    );
+  }
+  if (!isRecord(value)) return value;
+  if (
+    typeof value["$field"] === "string" &&
+    names.has(value["$field"]) &&
+    Object.keys(value).every((key) => key === "$field" || key === "fallback")
+  ) {
+    return { $field: value["$field"] };
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      withoutOmittedPasswordFallbacks(item, names, depth + 1),
+    ]),
+  );
+};
+
+const actionValue = (
+  action: unknown,
+  context: ConversionContext,
+): string | undefined => {
   if (!isRecord(action)) return undefined;
   const { type: _type, ...payload } = action;
   if (Object.keys(payload).length === 0) return undefined;
-  try {
-    const serialized = JSON.stringify(payload);
-    return serialized === "{}" ? undefined : serialized;
-  } catch {
-    return undefined;
-  }
+  const serialized = JSON.stringify(
+    context.omittedPasswordNames.size === 0
+      ? payload
+      : withoutOmittedPasswordFallbacks(payload, context.omittedPasswordNames),
+  );
+  return serialized === "{}" ? undefined : serialized;
 };
 
 const buttonElement = (
@@ -214,8 +271,17 @@ const buttonElement = (
   component: string,
   context: ConversionContext,
 ): SlackButtonElement => {
-  const serializedValue = actionValue(action);
-  let value = serializedValue;
+  let value: string | undefined;
+  try {
+    value = actionValue(action, context);
+  } catch {
+    warn(
+      context,
+      "dropped",
+      component,
+      "value was dropped because the action payload could not be serialized.",
+    );
+  }
   if (value !== undefined && value.length > BUTTON_VALUE_CAP) {
     warn(
       context,
@@ -1368,6 +1434,22 @@ const convertElement = (
       ];
     }
     case "Input": {
+      if (props["inputType"] === "password") {
+        warn(
+          context,
+          "dropped",
+          "Input",
+          "Password input was replaced by a Slack omission note.",
+        );
+        return [
+          {
+            type: "context",
+            elements: [
+              { type: "mrkdwn", text: "Password input omitted on Slack." },
+            ],
+          },
+        ];
+      }
       const label = clampText(
         asString(props["label"]),
         INPUT_LABEL_CAP,
@@ -1399,7 +1481,10 @@ const convertElement = (
           element: {
             type: "plain_text_input",
             action_id: actionId,
-            ...(props["multiline"] === true ? { multiline: true } : {}),
+            ...(props["multiline"] === true &&
+            (props["inputType"] === undefined || props["inputType"] === "text")
+              ? { multiline: true }
+              : {}),
             ...(typeof defaultValue === "string" && defaultValue
               ? { initial_value: defaultValue }
               : {}),
@@ -1603,6 +1688,7 @@ export function toSlackBlocks(
     blockCap: surface === "modal" ? MODAL_BLOCK_CAP : MESSAGE_BLOCK_CAP,
     surface,
     warnings: [],
+    omittedPasswordNames: new Set(),
     fieldBlockIdSequence: 0,
     markdownCharacters: 0,
     markdownExhausted: false,
@@ -1613,6 +1699,7 @@ export function toSlackBlocks(
       warn(context, "clamped", "Root", clampReasonDetail(reason)),
     );
     const { root } = normalizeSpec(bounded as never);
+    collectOmittedPasswordNames(root, context.omittedPasswordNames);
     const converted = convertSequence(root, context, 0);
     if (converted.length <= context.blockCap) {
       return { blocks: converted, warnings: context.warnings };
